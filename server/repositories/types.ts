@@ -35,11 +35,27 @@ export interface JobRecord {
   operation: string;
   attemptCount: number;
   status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'RETRYING';
-  payload?: unknown;
-  lastError?: string;
-  createdAt: string;
+  lockedAt?: string;
+  lockedBy?: string;
+  availableAt?: string;
   startedAt?: string;
+  completedAt?: string;
+  failedAt?: string;
   finishedAt?: string;
+  lastError?: string;
+  idempotencyKey?: string;
+  payload?: unknown;
+  createdAt: string;
+}
+
+export interface OAuthStateRecord {
+  id: string;
+  state: string;
+  tenantId: string;
+  userId: string;
+  createdAt: string;
+  expiresAt: string;
+  consumedAt?: string;
 }
 
 export interface PaddleCustomerRecord {
@@ -159,4 +175,13 @@ export interface IJobRecordRepository {
   createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'attemptCount' | 'status'>): Promise<JobRecord>;
   getJob(jobId: string): Promise<JobRecord | null>;
   updateJobStatus(jobId: string, status: JobRecord['status'], error?: string): Promise<void>;
+  lockJob(jobId: string, lockedBy: string): Promise<boolean>;
+  completeJob(jobId: string): Promise<void>;
+  failJob(jobId: string, error: string): Promise<void>;
+}
+
+export interface IOAuthStateRepository {
+  createState(tenantId: string, userId: string, state: string, ttlSeconds?: number): Promise<OAuthStateRecord>;
+  validateAndConsumeState(state: string): Promise<OAuthStateRecord | null>;
+  getState(state: string): Promise<OAuthStateRecord | null>;
 }

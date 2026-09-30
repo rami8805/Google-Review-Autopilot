@@ -3,8 +3,19 @@ import { runSafetyTests } from './safety/injectionDefense.test';
 import { runIntegrationTests } from './integration/endToEndJourney.test';
 import { runReplyGuardTests } from './guard/replyGuard.test';
 import { runProductionTests } from './production/productionJourney.test';
+import { runPostgresPersistenceTests } from './db/postgresPersistence.test';
+import { initTestDatabase } from './testDbHarness';
 
 async function main() {
+  console.log('--- INITIALIZING POSTGRESQL TEST DATABASE HARNESS ---');
+  initTestDatabase();
+  console.log('PostgreSQL schema, tables, constraints, and indexes loaded.\n');
+
+  console.log('--- RUNNING POSTGRESQL PERSISTENCE & DATA ARCHITECTURE TESTS ---');
+  const persistenceResults = await runPostgresPersistenceTests();
+  persistenceResults.results.forEach((r) => console.log(r));
+  console.log(`Summary: ${persistenceResults.passed} passed, ${persistenceResults.failed} failed.\n`);
+
   console.log('--- RUNNING AUTOMATION RULE ENGINE TESTS ---');
   const ruleResults = runAutomationRulesTests();
   ruleResults.results.forEach((r) => console.log(r));
@@ -31,9 +42,19 @@ async function main() {
   console.log(`Summary: ${productionResults.passed} passed, ${productionResults.failed} failed.\n`);
 
   const totalPassed =
-    ruleResults.passed + safetyResults.passed + integrationResults.passed + guardResults.passed + productionResults.passed;
+    persistenceResults.passed +
+    ruleResults.passed +
+    safetyResults.passed +
+    integrationResults.passed +
+    guardResults.passed +
+    productionResults.passed;
   const totalFailed =
-    ruleResults.failed + safetyResults.failed + integrationResults.failed + guardResults.failed + productionResults.failed;
+    persistenceResults.failed +
+    ruleResults.failed +
+    safetyResults.failed +
+    integrationResults.failed +
+    guardResults.failed +
+    productionResults.failed;
   const totalTests = totalPassed + totalFailed;
 
   if (totalFailed > 0) {

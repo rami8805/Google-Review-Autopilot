@@ -127,6 +127,7 @@ export const googleConnections = pgTable(
   (table) => [
     index('idx_google_conn_tenant_id').on(table.tenantId),
     uniqueIndex('idx_google_conn_location').on(table.businessLocationId),
+    uniqueIndex('idx_google_conn_tenant_loc_acc').on(table.tenantId, table.businessLocationId, table.googleAccountId),
   ]
 );
 
@@ -456,15 +457,46 @@ export const jobRecords = pgTable(
     operation: text('operation').notNull(), // REVIEW_SYNC | AI_REPLY_PROCESSING | GOOGLE_PUBLICATION | NOTIFICATION_DELIVERY
     attemptCount: integer('attempt_count').notNull().default(0),
     status: text('status').notNull().default('PENDING'), // PENDING | RUNNING | COMPLETED | FAILED | RETRYING
-    payloadJson: jsonb('payload_json'),
-    lastError: text('last_error'),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    lockedBy: text('locked_by'),
+    availableAt: timestamp('available_at', { withTimezone: true }).defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    failedAt: timestamp('failed_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    idempotencyKey: text('idempotency_key'),
+    payloadJson: jsonb('payload_json'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index('idx_jobs_tenant_id').on(table.tenantId),
     uniqueIndex('idx_jobs_job_id').on(table.jobId),
     index('idx_jobs_status').on(table.status),
+    index('idx_jobs_available_at').on(table.availableAt),
+    index('idx_jobs_locked_at').on(table.lockedAt),
+    index('idx_jobs_idempotency_key').on(table.idempotencyKey),
+  ]
+);
+
+// ==========================================
+// 8. OAUTH STATE
+// ==========================================
+export const oauthStates = pgTable(
+  'oauth_states',
+  {
+    id: text('id').primaryKey(),
+    state: text('state').notNull().unique(),
+    tenantId: text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('idx_oauth_states_state').on(table.state),
+    index('idx_oauth_states_tenant_id').on(table.tenantId),
+    index('idx_oauth_states_user_id').on(table.userId),
+    index('idx_oauth_states_expires_at').on(table.expiresAt),
   ]
 );

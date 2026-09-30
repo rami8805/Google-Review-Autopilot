@@ -25,6 +25,8 @@ import {
   GoogleConnectionRepository,
 } from '../../server/repositories/postgresRepositories.ts';
 import { CloudTasksService } from '../../server/services/tasks/cloudTasksService.ts';
+import { db } from '../../server/db/index.ts';
+import * as schema from '../../server/db/schema.ts';
 import type { Review, ReviewReply } from '../../shared/types/domain.ts';
 
 export async function runProductionTests(): Promise<{ passed: number; failed: number; results: string[] }> {
@@ -38,6 +40,7 @@ export async function runProductionTests(): Promise<{ passed: number; failed: nu
   const billingRepo = new BillingRepository();
   const idempotencyRepo = new IdempotencyRepository();
   const jobRepo = new JobRecordRepository();
+  const googleRepo = new GoogleConnectionRepository();
   const cloudTasks = new CloudTasksService();
 
   // Seed two distinct tenants for cross-tenant testing
@@ -58,6 +61,31 @@ export async function runProductionTests(): Promise<{ passed: number; failed: nu
     name: 'Bravo Auto Repair',
     billingEmail: 'billing@bravoauto.com',
     status: 'ACTIVE',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  await db.insert(schema.businesses).values({
+    id: 'biz_alpha_01',
+    tenantId: tenantA,
+    name: 'Alpha Dental Business',
+  }).onConflictDoNothing();
+
+  await googleRepo.upsertLocation(tenantA, {
+    id: 'loc_alpha_01',
+    saasCustomerId: tenantA,
+    businessId: 'biz_alpha_01',
+    googleLocationId: 'locations/loc_alpha_01',
+    locationName: 'Alpha Dental Practice',
+    address: {
+      addressLines: ['123 Alpha St'],
+      locality: 'San Francisco',
+      administrativeArea: 'CA',
+      postalCode: '94105',
+      country: 'US',
+    },
+    isConnected: true,
+    automationEnabled: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });

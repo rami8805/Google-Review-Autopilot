@@ -41,6 +41,7 @@
     "autoprefixer": "^10.4.21",
     "drizzle-kit": "^0.31.11",
     "esbuild": "^0.25.0",
+    "pg-mem": "^3.0.14",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
   }
