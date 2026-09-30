@@ -25,68 +25,32 @@ const userRepo = new UserRepository();
 export async function verifyToken(token: string): Promise<AuthenticatedContext | null> {
   if (!token) return null;
 
-  // 1. Structured test/dev tokens
-  if (token.startsWith('test_token_')) {
-    const raw = token.replace('test_token_', '');
-    let role: UserRole = 'MEMBER';
-    let tenantId = 'saas_cust_demo_01';
-    let userId = 'usr_01';
-
-    if (raw.toLowerCase().endsWith('_super_admin')) {
-      role = 'SUPER_ADMIN';
-      const remainder = raw.slice(0, -'_super_admin'.length);
-      const split = remainder.split('_');
-      userId = split[0] || 'admin';
-      tenantId = split.slice(1).join('_') || 'system';
-    } else {
-      const parts = raw.split('_');
-      if (parts.length >= 3) {
-        const parsedRole = parts[parts.length - 1].toUpperCase() as UserRole;
-        role = ['OWNER', 'ADMIN', 'MEMBER', 'SUPPORT', 'SUPER_ADMIN'].includes(parsedRole) ? parsedRole : 'MEMBER';
-        tenantId = parts.slice(1, parts.length - 1).join('_');
-        userId = parts[0];
-      }
-    }
-
-    return {
-      userId,
-      identitySubject: `google_identity_${userId}`,
-      email: `${userId}@company.com`,
-      tenantId: tenantId || 'saas_cust_demo_01',
-      role,
-    };
+  // Test tokens are available only outside production and must never be accepted by a production deployment.
+  if (process.env.NODE_ENV !== 'production' && token.startsWith('test_token_')) {
+    const raw = token.slice('test_token_'.length);
+    const parts = raw.split('_');
+    if (parts.length < 3) return null;
+    const parsedRole = parts[parts.length - 1].toUpperCase() as UserRole;
+    if (!['OWNER', 'ADMIN', 'MEMBER', 'SUPPORT', 'SUPER_ADMIN'].includes(parsedRole)) return null;
+    const userId = parts[0];
+    const tenantId = parts.slice(1, -1).join('_');
+    if (!userId || !tenantId) return null;
+    return { userId, identitySubject: `test_identity_${userId}`, email: `${userId}@test.invalid`, tenantId, role: parsedRole };
   }
 
-  // 2. Mock development token for default tenant
-  if (token === 'mock_access_token' || token === 'dev_bearer_token') {
-    return {
-      userId: 'usr_demo_01',
-      identitySubject: 'google_sub_1089274910284',
-      email: 'owner@downtowndental-sf.com',
-      tenantId: 'saas_cust_demo_01',
-      role: 'OWNER',
-    };
+  // Never accept hard-coded mock credentials in production.
+  if (process.env.NODE_ENV !== 'production' && (token === 'mock_access_token' || token === 'dev_bearer_token')) {
+    return { userId: 'usr_demo_01', identitySubject: 'google_sub_1089274910284', email: 'owner@downtowndental-sf.com', tenantId: 'saas_cust_demo_01', role: 'OWNER' };
   }
 
-  // 3. Google Identity Platform / Firebase ID Token verification
+  // Google Identity Platform / Firebase ID Token verification
   try {
     let identitySubject: string | null = null;
     let email: string = 'user@example.com';
 
-    try {
-      const decoded = await adminAuth.verifyIdToken(token);
-      identitySubject = decoded.uid;
-      email = decoded.email || 'user@example.com';
-    } catch {
-      // Fallback to JWT payload parsing for offline/test environments
-      const segments = token.split('.');
-      if (segments.length === 3) {
-        const payloadJson = Buffer.from(segments[1], 'base64').toString('utf-8');
-        const payload = JSON.parse(payloadJson);
-        identitySubject = payload.sub || payload.user_id;
-        email = payload.email || 'user@example.com';
-      }
-    }
+    const decoded = await adminAuth.verifyIdToken(token);
+    identitySubject = decoded.uid;
+    email = decoded.email || 'user@example.com';
 
     if (!identitySubject) return null;
 
@@ -110,14 +74,9 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
       };
     }
 
-    // If user does not exist yet (first login)
-    return {
-      userId: `usr_${identitySubject.substring(0, 8)}`,
-      identitySubject,
-      email,
-      tenantId: `tenant_${identitySubject.substring(0, 8)}`,
-      role: 'OWNER',
-    };
+    // A verified identity without a provisioned user/membership is not authorized.
+    // Provisioning must happen through an explicit, server-controlled onboarding flow.
+    return null;
   } catch {
     return null;
   }

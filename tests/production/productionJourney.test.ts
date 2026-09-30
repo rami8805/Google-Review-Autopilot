@@ -126,6 +126,28 @@ export async function runProductionTests(): Promise<{ passed: number; failed: nu
     results.push(`FAIL [AUTH]: Token verification threw: ${(e as Error).message}`);
   }
 
+  // Production must never accept synthetic/mock bearer credentials or unsigned JWT payloads.
+  try {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const forgedTestToken = await verifyToken('test_token_super_admin_system_super_admin');
+    const mockToken = await verifyToken('mock_access_token');
+    const unsignedJwt = await verifyToken('eyJhbGciOiJub25lIn0.eyJzdWIiOiJhdHRhY2tlciJ9.');
+    process.env.NODE_ENV = previousNodeEnv;
+
+    if (!forgedTestToken && !mockToken && !unsignedJwt) {
+      passed++;
+      results.push('PASS [AUTH]: Production rejects test tokens, mock credentials, and unsigned JWT payloads');
+    } else {
+      failed++;
+      results.push('FAIL [AUTH]: Production accepted a synthetic or unsigned credential');
+    }
+  } catch (e) {
+    process.env.NODE_ENV = 'test';
+    failed++;
+    results.push(`FAIL [AUTH]: Production credential rejection test threw: ${(e as Error).message}`);
+  }
+
   // ========================================================
   // 2. TENANT ISOLATION & IDOR DEFENSE TESTS (Prompt A)
   // ========================================================

@@ -19,14 +19,13 @@ router.post('/paddle', async (req: Request, res: Response) => {
     return;
   }
 
-  // Handle raw body string or JSON stringified body
-  const rawBody = typeof req.body === 'string'
-    ? req.body
-    : Buffer.isBuffer(req.body)
-    ? req.body.toString('utf-8')
-    : JSON.stringify(req.body);
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+  if (!rawBody) {
+    res.status(400).json({ success: false, error: 'RAW_BODY_UNAVAILABLE' });
+    return;
+  }
 
-  const result = await paddleService.processWebhookEvent(rawBody, signature);
+  const result = await paddleService.processWebhookEvent(rawBody.toString('utf8'), signature);
 
   if (!result.success) {
     if (result.error === 'INVALID_SIGNATURE') {

@@ -26,6 +26,16 @@ export class PaddleBillingService implements IPaddleBillingProvider {
   private baseUrl: string;
   private billingRepo: BillingRepository;
 
+  private get isProduction(): boolean {
+    return process.env.NODE_ENV === 'production';
+  }
+
+  private requireApiKey(): void {
+    if (!this.apiKey && this.isProduction) {
+      throw new Error('PADDLE_API_KEY is required in production');
+    }
+  }
+
   constructor(config?: { apiKey?: string; webhookSecret?: string; baseUrl?: string }) {
     this.apiKey = config?.apiKey || process.env.PADDLE_API_KEY || '';
     this.webhookSecret = config?.webhookSecret || process.env.PADDLE_WEBHOOK_SECRET || '';
@@ -38,11 +48,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
    * Header format: "ts=1680000000;h1=hash"
    */
   verifyWebhookSignature(rawBody: string, signatureHeader: string): boolean {
-    if (!this.webhookSecret) {
-      // If secret not configured in local sandbox test mode, allow explicit test signature
-      if (signatureHeader && signatureHeader.startsWith('test_valid_sig')) return true;
-      return false;
-    }
+    if (!this.webhookSecret) return false;
 
     if (!signatureHeader || !rawBody) return false;
 
@@ -251,6 +257,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
   }): Promise<{ id: string; email: string; name?: string }> {
     const mockId = `ctm_sandbox_${Date.now()}`;
     if (!this.apiKey) {
+      this.requireApiKey();
       await this.billingRepo.recordPaddleCustomer({
         id: `pc_${mockId}`,
         tenantId: params.tenantId,
@@ -286,20 +293,16 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       return { id: customerId, email: params.email, name: params.name };
     } catch (err) {
-      console.warn('[PaddleService] createCustomer failed, using sandbox fallback:', (err as Error).message);
-      await this.billingRepo.recordPaddleCustomer({
-        id: `pc_${mockId}`,
-        tenantId: params.tenantId,
-        paddleCustomerId: mockId,
-        email: params.email,
-        name: params.name,
-      });
+      if (this.isProduction) throw err;
+      console.warn('[PaddleService] createCustomer failed in non-production:', (err as Error).message);
+      const mockId = `ctm_sandbox_${Date.now()}`;
       return { id: mockId, email: params.email, name: params.name };
     }
   }
 
   async getCustomer(customerId: string): Promise<any> {
     if (!this.apiKey) {
+      this.requireApiKey();
       return { id: customerId, status: 'active' };
     }
     try {
@@ -308,13 +311,15 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       const data: any = await res.json();
       return data.data;
-    } catch {
+    } catch (err) {
+      if (this.isProduction) throw err;
       return { id: customerId, status: 'active' };
     }
   }
 
   async getTransaction(transactionId: string): Promise<any> {
     if (!this.apiKey) {
+      this.requireApiKey();
       return { id: transactionId, status: 'paid' };
     }
     try {
@@ -323,7 +328,8 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       const data: any = await res.json();
       return data.data;
-    } catch {
+    } catch (err) {
+      if (this.isProduction) throw err;
       return { id: transactionId, status: 'paid' };
     }
   }
@@ -333,6 +339,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
     effectiveFrom: 'next_billing_period' | 'immediately' = 'next_billing_period'
   ): Promise<any> {
     if (!this.apiKey) {
+      this.requireApiKey();
       return { id: subscriptionId, status: 'canceled', effective_from: effectiveFrom };
     }
     try {
@@ -346,13 +353,15 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       const data: any = await res.json();
       return data.data;
-    } catch {
+    } catch (err) {
+      if (this.isProduction) throw err;
       return { id: subscriptionId, status: 'canceled', effective_from: effectiveFrom };
     }
   }
 
   async updateSubscription(subscriptionId: string, params: { priceId: string }): Promise<any> {
     if (!this.apiKey) {
+      this.requireApiKey();
       return { id: subscriptionId, price_id: params.priceId, status: 'active' };
     }
     try {
@@ -369,20 +378,16 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       const data: any = await res.json();
       return data.data;
-    } catch {
+    } catch (err) {
+      if (this.isProduction) throw err;
       return { id: subscriptionId, price_id: params.priceId, status: 'active' };
     }
   }
 
   async getPricePreview(priceIds: string[]): Promise<any> {
     if (!this.apiKey) {
-      return {
-        details: {
-          line_items: priceIds.map((id) => ({
-            price: { id, unit_price: { amount: '2900', currency_code: 'USD' } },
-          })),
-        },
-      };
+      this.requireApiKey();
+      return { details: { line_items: priceIds.map((id) => ({ price: { id, unit_price: { amount: '2900', currency_code: 'USD' } } })) } };
     }
     try {
       const res = await fetch(`${this.baseUrl}/pricing-preview`, {
@@ -397,14 +402,9 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       const data: any = await res.json();
       return data.data;
-    } catch {
-      return {
-        details: {
-          line_items: priceIds.map((id) => ({
-            price: { id, unit_price: { amount: '2900', currency_code: 'USD' } },
-          })),
-        },
-      };
+    } catch (err) {
+      if (this.isProduction) throw err;
+      throw err;
     }
   }
 
@@ -415,12 +415,9 @@ export class PaddleBillingService implements IPaddleBillingProvider {
     returnUrl?: string;
   }): Promise<{ transactionId: string; checkoutUrl?: string }> {
     if (!this.apiKey) {
-      // Mock Sandbox development response
+      this.requireApiKey();
       const txId = `txn_sandbox_${Date.now()}`;
-      return {
-        transactionId: txId,
-        checkoutUrl: `https://sandbox-checkout.paddle.com/checkout/${txId}`,
-      };
+      return { transactionId: txId, checkoutUrl: `https://sandbox-checkout.paddle.com/checkout/${txId}` };
     }
 
     try {
@@ -447,12 +444,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
         checkoutUrl: resData.data.url,
       };
     } catch (err) {
-      console.warn('[PaddleService] Paddle API call failed, using sandbox fallback:', (err as Error).message);
-      const txId = `txn_sandbox_${Date.now()}`;
-      return {
-        transactionId: txId,
-        checkoutUrl: `https://sandbox-checkout.paddle.com/checkout/${txId}`,
-      };
+      throw err;
     }
   }
 
