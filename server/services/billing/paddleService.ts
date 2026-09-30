@@ -257,6 +257,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
   }): Promise<{ id: string; email: string; name?: string }> {
     const mockId = `ctm_sandbox_${Date.now()}`;
     if (!this.apiKey) {
+      this.requireApiKey();
       await this.billingRepo.recordPaddleCustomer({
         id: `pc_${mockId}`,
         tenantId: params.tenantId,
@@ -417,7 +418,6 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       this.requireApiKey();
       const txId = `txn_sandbox_${Date.now()}`;
       return { transactionId: txId, checkoutUrl: `https://sandbox-checkout.paddle.com/checkout/${txId}` };
-    };
     }
 
     try {
