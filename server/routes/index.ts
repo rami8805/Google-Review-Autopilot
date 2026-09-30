@@ -15,8 +15,6 @@ import { GeminiAiReplyEngine } from '../services/ai/aiReplyEngine';
 import { GoogleBusinessProfileService } from '../services/google/googleProfileProvider';
 import { BillingService } from '../services/billing/billingService';
 import { SupportService } from '../services/support/supportService';
-import { googleRouter } from './google';
-import { reviewSyncJob } from '../jobs/reviewSyncJob';
 
 const router = Router();
 
@@ -245,37 +243,35 @@ router.get('/auth/me', (_req: Request, res: Response) => {
 // ==========================================
 // GOOGLE CONNECTION & LOCATION ROUTES
 // ==========================================
-router.use('/google', googleRouter);
+router.get('/google/connect', async (_req: Request, res: Response) => {
+  const url = await googleService.getAuthorizationUrl('state_demo');
+  return sendSuccess(res, { authUrl: url });
+});
+
+router.get('/google/locations', (_req: Request, res: Response) => {
+  return sendSuccess(res, [mockLocation]);
+});
+
+router.post('/google/sync-reviews', async (_req: Request, res: Response) => {
+  return sendSuccess(res, {
+    syncedLocationId: mockLocation.id,
+    newReviewsFound: 0,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // ==========================================
 // REVIEWS & REPLIES ROUTES
 // ==========================================
 router.get('/reviews', (_req: Request, res: Response) => {
-  const syncedReviews = reviewSyncJob.getAllReviews(mockSaaSCustomerId);
-  const reviewMap = new Map<string, Review & { reply?: ReviewReply }>();
-
-  // Include base mock reviews
-  for (const rev of mockReviews) {
-    reviewMap.set(rev.id, {
-      ...rev,
-      reply: rev.replyId ? mockReplies[rev.replyId] : undefined,
-    });
-  }
-
-  // Overlay synced reviews from reviewSyncJob
-  for (const rev of syncedReviews) {
-    reviewMap.set(rev.id, rev);
-  }
-
-  return sendSuccess(res, Array.from(reviewMap.values()));
+  const fullReviews = mockReviews.map((rev) => ({
+    ...rev,
+    reply: rev.replyId ? mockReplies[rev.replyId] : undefined,
+  }));
+  return sendSuccess(res, fullReviews);
 });
 
 router.get('/reviews/:id', (req: Request, res: Response) => {
-  const synced = reviewSyncJob.getReviewById(req.params.id);
-  if (synced) {
-    return sendSuccess(res, synced);
-  }
-
   const review = mockReviews.find((r) => r.id === req.params.id);
   if (!review) {
     return sendError(res, 404, 'NOT_FOUND', 'Review not found');
@@ -285,19 +281,12 @@ router.get('/reviews/:id', (req: Request, res: Response) => {
 });
 
 router.post('/reviews/:id/approve', async (req: Request, res: Response) => {
-  let review = mockReviews.find((r) => r.id === req.params.id);
-  let reply = review?.replyId ? mockReplies[review.replyId] : undefined;
-
-  const synced = reviewSyncJob.getReviewById(req.params.id);
-  if (synced) {
-    review = synced;
-    reply = synced.reply;
-  }
-
+  const review = mockReviews.find((r) => r.id === req.params.id);
   if (!review) {
     return sendError(res, 404, 'NOT_FOUND', 'Review not found');
   }
 
+  const reply = review.replyId ? mockReplies[review.replyId] : undefined;
   if (!reply) {
     return sendError(res, 404, 'NOT_FOUND', 'Reply draft not found for review');
   }
@@ -306,16 +295,12 @@ router.post('/reviews/:id/approve', async (req: Request, res: Response) => {
   const textToPublish = editedReplyText || reply.proposedText;
 
   // Publish via Google adapter
-  await googleService.publishReply(mockSaaSCustomerId, review.googleReviewName, textToPublish);
+  await googleService.publishReviewReply('mock_access_token', review.googleReviewName, textToPublish);
 
   reply.status = 'MANUALLY_PUBLISHED';
   reply.publishedText = textToPublish;
   reply.publishedAt = new Date().toISOString();
   reply.reviewedAt = new Date().toISOString();
-
-  if (synced) {
-    reviewSyncJob.updateReviewReply(review.id, reply);
-  }
 
   return sendSuccess(res, { review, reply });
 });
@@ -326,18 +311,31 @@ router.post('/reviews/:id/regenerate', async (req: Request, res: Response) => {
     return sendError(res, 404, 'NOT_FOUND', 'Review not found');
   }
 
-  const riskAssessment =
-    review.riskAssessment ||
-    (await aiEngine.assessRisk(review.comment || '', review.starRating));
-  review.riskAssessment = riskAssessment;
-
-  const { proposedText, model } = await aiEngine.generateReplyDraft({
+  const analysis = await aiEngine.analyzeAndGenerateReply({
     reviewText: review.comment || '',
-    authorName: review.author.displayName,
     rating: review.starRating,
-    brandVoice: mockBrandVoice,
-    riskAssessment,
+    reviewerName: review.author.displayName,
+    brandVoice: {
+      tone: mockBrandVoice.tone,
+      signOffTemplate: mockBrandVoice.signOffTemplate,
+      trustedBusinessContext: mockBrandVoice.trustedBusinessContext,
+    },
+    businessContext: {
+      businessName: mockLocation.locationName,
+      category: mockLocation.primaryCategory,
+      primaryPhone: mockLocation.primaryPhone,
+      primaryEmail: mockBrandVoice.trustedBusinessContext.contactEmailForInquiries,
+    },
+    configuredRules: mockRules,
   });
+
+  review.riskAssessment = {
+    riskLevel: analysis.riskLevel,
+    flags: (analysis.safetyFlags || []) as any,
+    explanation: analysis.reasoningSummary,
+    confidenceScore: 0.98,
+    recommendedAction: analysis.suggestedAction,
+  };
 
   let reply = review.replyId ? mockReplies[review.replyId] : undefined;
   if (!reply) {
@@ -346,23 +344,77 @@ router.post('/reviews/:id/regenerate', async (req: Request, res: Response) => {
       reviewId: review.id,
       saasCustomerId: mockSaaSCustomerId,
       businessLocationId: mockLocation.id,
-      proposedText,
+      proposedText: analysis.reply,
       status: 'PENDING_APPROVAL',
       generatedByAi: true,
-      aiModel: model,
+      aiModel: 'gemini-3.8-flash',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     review.replyId = reply.id;
     mockReplies[reply.id] = reply;
   } else {
-    reply.proposedText = proposedText;
-    reply.aiModel = model;
+    reply.proposedText = analysis.reply;
+    reply.aiModel = 'gemini-3.8-flash';
     reply.status = 'PENDING_APPROVAL';
     reply.updatedAt = new Date().toISOString();
   }
 
-  return sendSuccess(res, { review, reply });
+  return sendSuccess(res, { review, reply, analysis });
+});
+
+// ==========================================
+// DEDICATED AI ENGINE ROUTES
+// ==========================================
+router.post('/ai/analyze', async (req: Request, res: Response) => {
+  try {
+    const {
+      reviewText = '',
+      rating = 5,
+      reviewerName,
+      businessContext,
+      brandVoice,
+      relevantBusinessFacts,
+      configuredRules,
+    } = req.body || {};
+
+    const resolvedBusinessContext = businessContext || {
+      businessName: mockLocation.locationName,
+      category: mockLocation.primaryCategory,
+      primaryPhone: mockLocation.primaryPhone,
+      primaryEmail: mockBrandVoice.trustedBusinessContext.contactEmailForInquiries,
+    };
+
+    const resolvedBrandVoice = brandVoice || {
+      tone: mockBrandVoice.tone,
+      signOffTemplate: mockBrandVoice.signOffTemplate,
+      trustedBusinessContext: mockBrandVoice.trustedBusinessContext,
+    };
+
+    const analysis = await aiEngine.analyzeAndGenerateReply({
+      reviewText,
+      rating: Number(rating) as any,
+      reviewerName,
+      businessContext: resolvedBusinessContext,
+      brandVoice: resolvedBrandVoice,
+      relevantBusinessFacts,
+      configuredRules: configuredRules || mockRules,
+    });
+
+    return sendSuccess(res, analysis);
+  } catch (err) {
+    return sendError(res, 500, 'AI_ENGINE_ERROR', (err as Error).message);
+  }
+});
+
+router.post('/ai/safety-check', async (req: Request, res: Response) => {
+  try {
+    const { reviewText = '', rating = 5 } = req.body || {};
+    const risk = await aiEngine.assessRisk(reviewText, Number(rating));
+    return sendSuccess(res, risk);
+  } catch (err) {
+    return sendError(res, 500, 'AI_SAFETY_ERROR', (err as Error).message);
+  }
 });
 
 // ==========================================
