@@ -11,6 +11,7 @@ import {
   Compass,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 interface NavbarProps {
   pendingCount: number;
@@ -23,6 +24,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   locationName,
   isConnected,
 }) => {
+  const auth = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const currentPath = location.pathname;
@@ -150,6 +152,34 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Shield className="w-3.5 h-3.5 text-indigo-500" />
               <span className="hidden sm:inline">Super Admin</span>
             </button>
+
+            {/* Google Identity & Auth Badge */}
+            {auth.isAuthenticated ? (
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+                <div className="flex flex-col text-right">
+                  <span className="text-[11px] font-bold text-slate-800 leading-tight max-w-[120px] truncate">
+                    {auth.name || auth.email}
+                  </span>
+                  <span className="text-[9px] font-semibold text-blue-600 uppercase tracking-wider">
+                    {auth.role}
+                  </span>
+                </div>
+                <button
+                  onClick={() => auth.logout()}
+                  className="px-2 py-1 text-[10px] font-semibold rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
+                  title="Sign out"
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => auth.loginWithGoogle()}
+                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition flex items-center gap-1.5"
+              >
+                <span>Sign in with Google</span>
+              </button>
+            )}
           </div>
         </div>
 

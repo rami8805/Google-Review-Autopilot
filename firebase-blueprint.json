@@ -1,0 +1,197 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Authenticated user profile linked to Firebase Auth UID",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "identitySubject": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["OWNER", "ADMIN", "MEMBER", "SUPPORT", "SUPER_ADMIN"] },
+        "tenantId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "identitySubject", "email", "name", "role", "tenantId"]
+    },
+    "Tenant": {
+      "title": "Tenant",
+      "description": "Multi-tenant business account container",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "billingEmail": { "type": "string", "format": "email" },
+        "status": { "type": "string", "enum": ["ACTIVE", "SUSPENDED", "CANCELLED"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "billingEmail", "status"]
+    },
+    "BusinessLocation": {
+      "title": "BusinessLocation",
+      "description": "Physical or registered business location linked to Google Business Profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "googleLocationId": { "type": "string" },
+        "locationName": { "type": "string" },
+        "locality": { "type": "string" },
+        "administrativeArea": { "type": "string" },
+        "country": { "type": "string" },
+        "isConnected": { "type": "boolean" },
+        "automationEnabled": { "type": "boolean" }
+      },
+      "required": ["id", "tenantId", "googleLocationId", "locationName"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Synced customer review from Google Business Profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "businessLocationId": { "type": "string" },
+        "googleReviewId": { "type": "string" },
+        "googleReviewName": { "type": "string" },
+        "authorName": { "type": "string" },
+        "starRating": { "type": "integer" },
+        "comment": { "type": "string" },
+        "riskLevel": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "replyId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "tenantId", "businessLocationId", "googleReviewId", "starRating"]
+    },
+    "ReviewReply": {
+      "title": "ReviewReply",
+      "description": "Proposed or published reply evaluated by Reply Guard",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "reviewId": { "type": "string" },
+        "proposedText": { "type": "string" },
+        "publishedText": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING_APPROVAL", "APPROVED", "AUTO_PUBLISHED", "MANUALLY_PUBLISHED", "REJECTED", "FAILED_TO_PUBLISH"] },
+        "generatedByAi": { "type": "boolean" },
+        "aiModel": { "type": "string" },
+        "guardDecision": { "type": "string" }
+      },
+      "required": ["id", "tenantId", "reviewId", "proposedText", "status"]
+    },
+    "AutomationRule": {
+      "title": "AutomationRule",
+      "description": "Star-rating automation threshold and delay configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "starRating": { "type": "integer" },
+        "maxRiskLevelForAutoPublish": { "type": "string" },
+        "action": { "type": "string", "enum": ["AUTO_PUBLISH", "REQUIRE_APPROVAL", "DO_NOT_REPLY"] },
+        "delayMinutesBeforePublish": { "type": "integer" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "tenantId", "starRating", "action"]
+    },
+    "BrandVoice": {
+      "title": "BrandVoice",
+      "description": "Tenant-specific tone, sign-off, and boundary settings for AI generation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "tone": { "type": "string" },
+        "signOffTemplate": { "type": "string" },
+        "contactEmailForInquiries": { "type": "string" }
+      },
+      "required": ["id", "tenantId", "tone"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "Tenant subscription plan, quota limits, and Paddle billing state",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "plan": { "type": "string", "enum": ["STARTER", "GROWTH", "PRO", "ENTERPRISE"] },
+        "status": { "type": "string", "enum": ["TRIALING", "ACTIVE", "PAST_DUE", "CANCELED", "INCOMPLETE"] },
+        "locationLimit": { "type": "integer" },
+        "monthlyReplyLimit": { "type": "integer" }
+      },
+      "required": ["id", "tenantId", "plan", "status"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Customer support ticket for administrative escalation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "createdByUserEmail": { "type": "string" },
+        "subject": { "type": "string" },
+        "status": { "type": "string", "enum": ["OPEN", "IN_PROGRESS", "WAITING_ON_CUSTOMER", "RESOLVED", "CLOSED"] },
+        "priority": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "URGENT"] }
+      },
+      "required": ["id", "tenantId", "createdByUserEmail", "subject", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Tenant notification alerts and approval prompts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "isRead": { "type": "boolean" }
+      },
+      "required": ["id", "tenantId", "type", "title", "message"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents keyed by user Firebase UID"
+    },
+    "/tenants/{tenantId}": {
+      "schema": "Tenant",
+      "description": "Tenant organization records"
+    },
+    "/tenants/{tenantId}/locations/{locationId}": {
+      "schema": "BusinessLocation",
+      "description": "Business locations scoped to tenant"
+    },
+    "/tenants/{tenantId}/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Google reviews scoped to tenant"
+    },
+    "/tenants/{tenantId}/replies/{replyId}": {
+      "schema": "ReviewReply",
+      "description": "Review replies and approval statuses scoped to tenant"
+    },
+    "/tenants/{tenantId}/rules/{ruleId}": {
+      "schema": "AutomationRule",
+      "description": "Automation rules per star-rating scoped to tenant"
+    },
+    "/tenants/{tenantId}/brand_voice/{voiceId}": {
+      "schema": "BrandVoice",
+      "description": "Brand voice rules scoped to tenant"
+    },
+    "/tenants/{tenantId}/subscriptions/{subId}": {
+      "schema": "Subscription",
+      "description": "Paddle subscription state scoped to tenant"
+    },
+    "/tenants/{tenantId}/tickets/{ticketId}": {
+      "schema": "SupportTicket",
+      "description": "Support tickets scoped to tenant"
+    },
+    "/tenants/{tenantId}/notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "In-app notifications scoped to tenant"
+    }
+  }
+}

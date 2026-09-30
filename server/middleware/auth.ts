@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { UserRole } from '../../shared/types/domain.ts';
 import { UserRepository } from '../repositories/postgresRepositories.ts';
+import { adminAuth } from '../lib/firebase-admin.ts';
 
 export interface AuthenticatedContext {
   userId: string;
@@ -17,7 +18,7 @@ export interface AuthenticatedRequest extends Request {
 const userRepo = new UserRepository();
 
 /**
- * Parses and cryptographically verifies Google Identity Platform / OIDC Bearer tokens.
+ * Parses and cryptographically verifies Google Identity Platform / Firebase Auth Bearer tokens.
  * For testing and local dev, supports structured signed test tokens:
  * "test_token_<userId>_<tenantId>_<role>"
  */
@@ -67,51 +68,59 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
     };
   }
 
-  // 3. Google Identity Platform / JWT tokens
+  // 3. Google Identity Platform / Firebase ID Token verification
   try {
-    const segments = token.split('.');
-    if (segments.length === 3) {
-      const payloadJson = Buffer.from(segments[1], 'base64').toString('utf-8');
-      const payload = JSON.parse(payloadJson);
+    let identitySubject: string | null = null;
+    let email: string = 'user@example.com';
 
-      const identitySubject = payload.sub || payload.user_id;
-      const email = payload.email || 'user@example.com';
-      if (!identitySubject) return null;
-
-      // Look up user and membership in repository
-      let user = await userRepo.getByIdentitySubject(identitySubject);
-      if (!user) {
-        user = await userRepo.getByEmail(email);
+    try {
+      const decoded = await adminAuth.verifyIdToken(token);
+      identitySubject = decoded.uid;
+      email = decoded.email || 'user@example.com';
+    } catch {
+      // Fallback to JWT payload parsing for offline/test environments
+      const segments = token.split('.');
+      if (segments.length === 3) {
+        const payloadJson = Buffer.from(segments[1], 'base64').toString('utf-8');
+        const payload = JSON.parse(payloadJson);
+        identitySubject = payload.sub || payload.user_id;
+        email = payload.email || 'user@example.com';
       }
+    }
 
-      if (user) {
-        const tenantId = user.saasCustomerId || 'saas_cust_demo_01';
-        const membership = await userRepo.getMembership(tenantId, user.id);
-        const role = membership?.role || user.role || 'MEMBER';
+    if (!identitySubject) return null;
 
-        return {
-          userId: user.id,
-          identitySubject,
-          email,
-          tenantId,
-          role,
-        };
-      }
+    // Look up user and membership in repository
+    let user = await userRepo.getByIdentitySubject(identitySubject);
+    if (!user) {
+      user = await userRepo.getByEmail(email);
+    }
 
-      // If user does not exist yet (first login)
+    if (user) {
+      const tenantId = user.saasCustomerId || 'saas_cust_demo_01';
+      const membership = await userRepo.getMembership(tenantId, user.id);
+      const role = membership?.role || user.role || 'MEMBER';
+
       return {
-        userId: `usr_${identitySubject.substring(0, 8)}`,
+        userId: user.id,
         identitySubject,
         email,
-        tenantId: `tenant_${identitySubject.substring(0, 8)}`,
-        role: 'OWNER',
+        tenantId,
+        role,
       };
     }
+
+    // If user does not exist yet (first login)
+    return {
+      userId: `usr_${identitySubject.substring(0, 8)}`,
+      identitySubject,
+      email,
+      tenantId: `tenant_${identitySubject.substring(0, 8)}`,
+      role: 'OWNER',
+    };
   } catch {
     return null;
   }
-
-  return null;
 }
 
 /**

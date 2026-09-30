@@ -1,13 +1,18 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
-  if (!process.env.TSX_BOOTSTRAPPED && !process.execArgv.some(arg => arg.includes('tsx'))) {
+  const isTsxRunning =
+    Boolean(process.env.TSX_BOOTSTRAPPED) ||
+    Boolean(process.argv.some(arg => arg.includes('tsx'))) ||
+    Boolean(process.execArgv.some(arg => arg.includes('tsx')));
+
+  if (!isTsxRunning) {
+    const { spawn } = await import('child_process');
     const child = spawn(process.execPath, ['--import', 'tsx', ...process.argv.slice(1)], {
       stdio: 'inherit',
       env: { ...process.env, TSX_BOOTSTRAPPED: 'true' },
@@ -17,7 +22,7 @@ async function startServer() {
     return;
   }
 
-  const { default: apiRouter } = await import('./server/routes/index');
+  const { default: apiRouter } = await import('./server/routes/index.ts');
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
   const isProduction = process.env.NODE_ENV === 'production';
@@ -36,7 +41,12 @@ async function startServer() {
     // In dev, use Vite's dev server middleware
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        hmr: process.env.DISABLE_HMR !== 'true',
+        watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
