@@ -136,7 +136,13 @@ CONSTRAINTS:
           ],
         });
 
-        let draft = response.text || '';
+        let draft = (response.text || '').trim();
+        if (!draft) {
+          return {
+            proposedText: this.buildSafeFallback(authorName, rating, contactInfo, riskAssessment),
+            model: 'safe-deterministic-fallback',
+          };
+        }
         draft = this.sanitizeDraft(draft);
         return {
           proposedText: draft,
@@ -156,12 +162,23 @@ CONSTRAINTS:
 
   private sanitizeDraft(draft: string): string {
     let sanitized = draft.trim();
-    // Safety check for forbidden words (matching stems for singular/plural)
+    const forbiddenPatterns = [
+      /\brefund(s|ed|ing)?\b/gi,
+      /\bdiscount(s|ed|ing)?\b/gi,
+      /\b(compensation|compensate|reimburse|reimbursement)\b/gi,
+      /\b(guarantee|guarantees|settlement)\b/gi,
+      /\bfree (service|meal|appointment|gift|treatment)\b/gi,
+    ];
+
+    for (const pattern of forbiddenPatterns) {
+      if (pattern.test(sanitized)) {
+        sanitized = sanitized.replace(pattern, '[redacted]');
+      }
+    }
+
     for (const forbidden of FORBIDDEN_AI_INVENTIONS) {
-      const stem = forbidden.endsWith('s') ? forbidden.slice(0, -1) : forbidden;
-      const regex = new RegExp(`\\b${stem}\\w*\\b`, 'gi');
+      const regex = new RegExp(`\\b${forbidden}\\b`, 'gi');
       if (regex.test(sanitized)) {
-        // Strip or replace unsafe sentence
         sanitized = sanitized.replace(regex, '[redacted]');
       }
     }

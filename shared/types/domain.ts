@@ -12,7 +12,7 @@
  * NOTE: The term "Customer" alone is NEVER used ambiguously in domain models.
  */
 
-export type UserRole = 'OWNER' | 'ADMIN' | 'MEMBER' | 'SUPPORT_AGENT' | 'SUPER_ADMIN' | 'PLATFORM_ADMIN';
+export type UserRole = 'OWNER' | 'ADMIN' | 'MEMBER' | 'SUPPORT_AGENT' | 'SUPER_ADMIN';
 
 export interface User {
   id: string;
@@ -242,150 +242,29 @@ export interface Notification {
   createdAt: string;
 }
 
-export type TicketStatus =
-  | 'OPEN'
-  | 'IN_PROGRESS'
-  | 'WAITING_FOR_CUSTOMER'
-  | 'WAITING_ON_CUSTOMER'
-  | 'RESOLVED'
-  | 'CLOSED';
-
-export type TicketPriority = 'LOW' | 'NORMAL' | 'MEDIUM' | 'HIGH' | 'URGENT';
-
-export type TicketCategory =
-  | 'GOOGLE_CONNECTION'
-  | 'REVIEW_REPLY'
-  | 'AUTOMATION'
-  | 'BILLING'
-  | 'ACCOUNT'
-  | 'BUG'
-  | 'OTHER';
-
-export interface SupportAttachment {
-  id: string;
-  ticketId: string;
-  saasCustomerId: string;
-  fileName: string;
-  fileSize: number;
-  mimeType: string;
-  url?: string;
-  dataBase64?: string;
-  uploadedBy: string;
-  createdAt: string;
-}
-
-export interface SupportInternalNote {
-  id: string;
-  ticketId: string;
-  authorAdminId: string;
-  authorAdminName: string;
-  note: string;
-  createdAt: string;
-}
-
-export interface AiSupportSuggestion {
-  issueSummary: string;
-  probableCause: string;
-  relevantCustomerContext: {
-    customerName: string;
-    plan: string;
-    googleLocationsCount: number;
-    hasGoogleConnectionError: boolean;
-    recentRiskFlagsCount: number;
-    billingStatus: string;
-  };
-  suggestedResponse: string;
-  suggestedArticleId?: string;
-  suggestedArticleTitle?: string;
-}
-
-export interface SupportMessage {
-  id: string;
-  ticketId: string;
-  senderType: 'SAAS_CUSTOMER' | 'SUPPORT_AGENT' | 'SYSTEM' | 'ADMIN';
-  senderUserId?: string;
-  senderName: string;
-  message: string;
-  attachments?: SupportAttachment[];
-  createdAt: string;
-}
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING_ON_CUSTOMER' | 'RESOLVED' | 'CLOSED';
+export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 export interface SupportTicket {
   id: string;
   saasCustomerId: string;
   createdByUserEmail: string;
   subject: string;
-  category: TicketCategory;
   status: TicketStatus;
   priority: TicketPriority;
-  assignedAdminId?: string;
-  assignedAdminName?: string;
-  assignedSupportAgentId?: string; // backwards compatibility
-  lastResponseAt?: string;
-  lastResponseBy?: 'SAAS_CUSTOMER' | 'SUPPORT_AGENT' | 'ADMIN' | 'SYSTEM';
-  messages?: SupportMessage[];
-  internalNotes?: SupportInternalNote[]; // STRICTLY FOR ADMINS - MUST NEVER LEAK TO CUSTOMER
-  attachments?: SupportAttachment[];
-  aiAssistantSuggestion?: AiSupportSuggestion;
+  assignedSupportAgentId?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface KnowledgeBaseArticle {
+export interface SupportMessage {
   id: string;
-  slug: string;
-  title: string;
-  category: string;
-  summary: string;
-  content: string;
-  lastUpdated: string;
-  tags: string[];
-}
-
-export interface CustomerNote {
-  id: string;
-  saasCustomerId: string;
-  authorAdminId: string;
-  authorAdminName: string;
-  note: string;
+  ticketId: string;
+  senderType: 'SAAS_CUSTOMER' | 'SUPPORT_AGENT' | 'SYSTEM';
+  senderUserId?: string;
+  senderName: string;
+  message: string;
   createdAt: string;
-  updatedAt: string;
-}
-
-export interface CustomerOverviewDetail {
-  customer: SaaSCustomer;
-  business?: Business;
-  locations: BusinessLocation[];
-  subscription?: Subscription;
-  mrr: number;
-  usage: {
-    monthlyReplyLimit: number;
-    reviewsProcessedThisMonth: number;
-    aiRepliesGeneratedThisMonth: number;
-    autoPublishRate: number;
-  };
-  recentReviews: Review[];
-  supportTickets: SupportTicket[];
-  auditEvents: AuditEvent[];
-  notes: CustomerNote[];
-  stats: {
-    lastActivityAt: string;
-    hasConnectionFailure: boolean;
-    riskFlagsCount: number;
-  };
-}
-
-export interface PlatformMetrics {
-  totalCustomers: number;
-  activeCustomers: number;
-  trialCustomers: number;
-  cancelledCustomers: number;
-  pastDueCustomers: number;
-  mrr: number;
-  newCustomers30d: number;
-  openSupportTickets: number;
-  highRiskSupportTickets: number;
-  googleConnectionFailures: number;
 }
 
 export interface AuditEvent {
@@ -394,17 +273,7 @@ export interface AuditEvent {
   actorUserId?: string;
   actorType: 'USER' | 'SYSTEM_JOB' | 'ADMIN' | 'GOOGLE_WEBHOOK';
   action: string;
-  targetResourceType:
-    | 'REVIEW'
-    | 'REPLY'
-    | 'LOCATION'
-    | 'AUTOMATION_RULE'
-    | 'CONNECTION'
-    | 'SUBSCRIPTION'
-    | 'CUSTOMER'
-    | 'TICKET'
-    | 'INTERNAL_NOTE'
-    | 'ATTACHMENT';
+  targetResourceType: 'REVIEW' | 'REPLY' | 'LOCATION' | 'AUTOMATION_RULE' | 'CONNECTION' | 'SUBSCRIPTION';
   targetResourceId: string;
   details?: Record<string, unknown>;
   ipAddress?: string;

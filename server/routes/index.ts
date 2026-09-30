@@ -15,7 +15,6 @@ import { GeminiAiReplyEngine } from '../services/ai/aiReplyEngine';
 import { GoogleBusinessProfileService } from '../services/google/googleProfileProvider';
 import { BillingService } from '../services/billing/billingService';
 import { SupportService } from '../services/support/supportService';
-import { CustomerManagementService } from '../services/customer-management/customerManagementService';
 
 const router = Router();
 
@@ -23,7 +22,6 @@ const aiEngine = new GeminiAiReplyEngine();
 const googleService = new GoogleBusinessProfileService();
 const billingService = new BillingService();
 const supportService = new SupportService();
-const customerMgmtService = new CustomerManagementService();
 
 // Mock in-memory state for initial bootstrap demonstration
 const mockSaaSCustomerId = 'saas_cust_demo_01';
@@ -191,6 +189,33 @@ let mockReplies: Record<string, ReviewReply> = {
 // ==========================================
 // Helper functions
 // ==========================================
+function getTenantId(req: Request): string {
+  return (req.headers['x-tenant-id'] as string) || mockSaaSCustomerId;
+}
+
+function verifyTenant(req: Request, res: Response, targetTenantId: string): boolean {
+  const reqTenant = getTenantId(req);
+  if (reqTenant !== targetTenantId) {
+    sendError(res, 403, 'TENANT_MISMATCH', `Access denied: cross-tenant access to ${targetTenantId} is forbidden`, {
+      tenantId: targetTenantId,
+    });
+    return false;
+  }
+  return true;
+}
+
+function verifyAdminRole(req: Request, res: Response): boolean {
+  const role = req.headers['x-user-role'] as string;
+  // If role header is explicitly provided and not SUPER_ADMIN, reject
+  if (role && role !== 'SUPER_ADMIN') {
+    sendError(res, 403, 'FORBIDDEN', 'Access denied: SUPER_ADMIN role required', {
+      requiredRole: 'SUPER_ADMIN',
+    });
+    return false;
+  }
+  return true;
+}
+
 function sendSuccess<T>(res: Response, data: T, pagination?: any) {
   const payload: ApiSuccessResponse<T> = {
     success: true,
@@ -245,16 +270,28 @@ router.get('/auth/me', (_req: Request, res: Response) => {
 // ==========================================
 // GOOGLE CONNECTION & LOCATION ROUTES
 // ==========================================
-router.get('/google/connect', async (_req: Request, res: Response) => {
-  const url = await googleService.getAuthorizationUrl('state_demo');
-  return sendSuccess(res, { authUrl: url });
+router.get('/google/connect', async (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
+  const state = `oauth_state_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const url = await googleService.getAuthorizationUrl(state);
+  return sendSuccess(res, { authUrl: url, state });
 });
 
-router.get('/google/locations', (_req: Request, res: Response) => {
+router.post('/google/disconnect', (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
+  mockLocation.isConnected = false;
+  mockLocation.automationEnabled = false;
+  mockLocation.updatedAt = new Date().toISOString();
+  return sendSuccess(res, { disconnected: true, locationId: mockLocation.id });
+});
+
+router.get('/google/locations', (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
   return sendSuccess(res, [mockLocation]);
 });
 
-router.post('/google/sync-reviews', async (_req: Request, res: Response) => {
+router.post('/google/sync-reviews', async (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
   return sendSuccess(res, {
     syncedLocationId: mockLocation.id,
     newReviewsFound: 0,
@@ -265,11 +302,14 @@ router.post('/google/sync-reviews', async (_req: Request, res: Response) => {
 // ==========================================
 // REVIEWS & REPLIES ROUTES
 // ==========================================
-router.get('/reviews', (_req: Request, res: Response) => {
-  const fullReviews = mockReviews.map((rev) => ({
-    ...rev,
-    reply: rev.replyId ? mockReplies[rev.replyId] : undefined,
-  }));
+router.get('/reviews', (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
+  const fullReviews = mockReviews
+    .filter((rev) => rev.saasCustomerId === getTenantId(req))
+    .map((rev) => ({
+      ...rev,
+      reply: rev.replyId ? mockReplies[rev.replyId] : undefined,
+    }));
   return sendSuccess(res, fullReviews);
 });
 
@@ -278,6 +318,8 @@ router.get('/reviews/:id', (req: Request, res: Response) => {
   if (!review) {
     return sendError(res, 404, 'NOT_FOUND', 'Review not found');
   }
+  if (!verifyTenant(req, res, review.saasCustomerId)) return;
+
   const reply = review.replyId ? mockReplies[review.replyId] : undefined;
   return sendSuccess(res, { ...review, reply });
 });
@@ -287,6 +329,7 @@ router.post('/reviews/:id/approve', async (req: Request, res: Response) => {
   if (!review) {
     return sendError(res, 404, 'NOT_FOUND', 'Review not found');
   }
+  if (!verifyTenant(req, res, review.saasCustomerId)) return;
 
   const reply = review.replyId ? mockReplies[review.replyId] : undefined;
   if (!reply) {
@@ -355,23 +398,51 @@ router.post('/reviews/:id/regenerate', async (req: Request, res: Response) => {
 // ==========================================
 // SETTINGS: AUTOMATION RULES & BRAND VOICE
 // ==========================================
-router.get('/settings/automation-rules', (_req: Request, res: Response) => {
+router.get('/settings/automation-rules', (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
   return sendSuccess(res, mockRules);
 });
 
 router.put('/settings/automation-rules', (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
   const { rules } = req.body;
-  if (Array.isArray(rules)) {
-    mockRules = rules;
+  if (!Array.isArray(rules)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Payload must contain rules array');
   }
+
+  // ENFORCE IMMUTABLE SAFETY INVARIANTS:
+  // 1-3 star reviews must ALWAYS have action: 'REQUIRE_APPROVAL'
+  // maxRiskLevelForAutoPublish cannot be HIGH or CRITICAL
+  const sanitizedRules: AutomationRule[] = rules.map((r: AutomationRule) => {
+    let action = r.action;
+    let maxRisk = r.maxRiskLevelForAutoPublish;
+
+    if (r.starRating <= 3) {
+      action = 'REQUIRE_APPROVAL';
+    }
+    if (maxRisk === 'HIGH' || maxRisk === 'CRITICAL') {
+      maxRisk = 'LOW';
+    }
+
+    return {
+      ...r,
+      action,
+      maxRiskLevelForAutoPublish: maxRisk,
+      saasCustomerId: mockSaaSCustomerId,
+    };
+  });
+
+  mockRules = sanitizedRules;
   return sendSuccess(res, mockRules);
 });
 
-router.get('/settings/brand-voice', (_req: Request, res: Response) => {
+router.get('/settings/brand-voice', (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
   return sendSuccess(res, mockBrandVoice);
 });
 
 router.put('/settings/brand-voice', (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
   mockBrandVoice = {
     ...mockBrandVoice,
     ...req.body,
@@ -383,365 +454,73 @@ router.put('/settings/brand-voice', (req: Request, res: Response) => {
 // ==========================================
 // BILLING ROUTES
 // ==========================================
-router.get('/billing/subscription', async (_req: Request, res: Response) => {
+router.get('/billing/subscription', async (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
   const sub = await billingService.getSubscription(mockSaaSCustomerId);
   return sendSuccess(res, sub);
 });
 
-// ==========================================
-// SECURITY MIDDLEWARE
-// ==========================================
-function getAuthenticatedContext(req: Request) {
-  const role = (req.headers['x-user-role'] as string) || 'SUPER_ADMIN';
-  const tenantId = (req.headers['x-saas-customer-id'] as string) || mockSaaSCustomerId;
-  const userEmail = (req.headers['x-user-email'] as string) || 'admin@reviewautopilot.com';
-  const userName = (req.headers['x-user-name'] as string) || 'Platform Administrator';
-  const userId = (req.headers['x-user-id'] as string) || 'admin_usr_01';
-  return { role, tenantId, userEmail, userName, userId };
-}
-
-function requirePlatformAdmin(req: Request, res: Response, next: () => void) {
-  const { role } = getAuthenticatedContext(req);
-  const allowedAdminRoles = ['PLATFORM_ADMIN', 'SUPER_ADMIN', 'ADMIN'];
-  if (!allowedAdminRoles.includes(role)) {
-    return sendError(res, 403, 'FORBIDDEN', 'Access restricted to Platform Administrators (PLATFORM_ADMIN role required).', {
-      requiredRole: 'PLATFORM_ADMIN',
-      providedRole: role,
-    });
-  }
-  next();
-}
+router.post('/billing/portal', async (req: Request, res: Response) => {
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
+  const session = await billingService.createPortalSession(mockSaaSCustomerId, 'https://example.com/billing');
+  return sendSuccess(res, session);
+});
 
 // ==========================================
-// SUPPORT ROUTES (CUSTOMER-FACING)
+// SUPPORT ROUTES
 // ==========================================
-// List tickets for current SaaSCustomer (tenant-isolated, strips internal notes)
 router.get('/support/tickets', async (req: Request, res: Response) => {
-  const { tenantId } = getAuthenticatedContext(req);
-  const tickets = await supportService.listCustomerTickets(tenantId);
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
+  const tickets = await supportService.listTickets(mockSaaSCustomerId);
   return sendSuccess(res, tickets);
 });
 
-// Create new support ticket
 router.post('/support/tickets', async (req: Request, res: Response) => {
-  const { tenantId, userEmail } = getAuthenticatedContext(req);
-  const { subject, category, priority, message, attachments, email } = req.body;
-
+  if (!verifyTenant(req, res, mockSaaSCustomerId)) return;
+  const { email, subject, message } = req.body;
   if (!subject || !message) {
-    return sendError(res, 400, 'VALIDATION_ERROR', 'Subject and message are required.');
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Subject and message are required');
   }
-
-  try {
-    const ticket = await supportService.createTicket({
-      saasCustomerId: tenantId,
-      userEmail: email || userEmail,
-      subject,
-      category: category || 'OTHER',
-      priority: priority || 'NORMAL',
-      message,
-      attachments,
-    });
-    return sendSuccess(res, ticket);
-  } catch (err: any) {
-    return sendError(res, 400, 'VALIDATION_ERROR', err.message || 'Failed to create support ticket');
-  }
-});
-
-// Get single ticket for customer (enforces tenant isolation)
-router.get('/support/tickets/:ticketId', async (req: Request, res: Response) => {
-  const { tenantId } = getAuthenticatedContext(req);
-  try {
-    const ticket = await supportService.getCustomerTicket(req.params.ticketId, tenantId);
-    if (!ticket) {
-      return sendError(res, 404, 'NOT_FOUND', 'Support ticket not found');
-    }
-    return sendSuccess(res, ticket);
-  } catch (err: any) {
-    if (err.code === 'TENANT_MISMATCH') {
-      return sendError(res, 403, 'TENANT_MISMATCH', 'Access denied: ticket belongs to another tenant.');
-    }
-    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', err.message);
-  }
-});
-
-// Customer replies to ticket
-router.post('/support/tickets/:ticketId/reply', async (req: Request, res: Response) => {
-  const { tenantId, userName, userEmail } = getAuthenticatedContext(req);
-  const { message, attachments, senderName } = req.body;
-
-  if (!message || !message.trim()) {
-    return sendError(res, 400, 'VALIDATION_ERROR', 'Reply message text is required.');
-  }
-
-  try {
-    const reply = await supportService.customerReply(
-      req.params.ticketId,
-      tenantId,
-      senderName || userName || userEmail,
-      message,
-      attachments
-    );
-    return sendSuccess(res, reply);
-  } catch (err: any) {
-    if (err.code === 'TENANT_MISMATCH') {
-      return sendError(res, 403, 'TENANT_MISMATCH', 'Access denied: cannot reply to another tenant ticket.');
-    }
-    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
-  }
-});
-
-// Customer closes ticket
-router.post('/support/tickets/:ticketId/close', async (req: Request, res: Response) => {
-  const { tenantId } = getAuthenticatedContext(req);
-  try {
-    const ticket = await supportService.closeCustomerTicket(req.params.ticketId, tenantId);
-    return sendSuccess(res, ticket);
-  } catch (err: any) {
-    if (err.code === 'TENANT_MISMATCH') {
-      return sendError(res, 403, 'TENANT_MISMATCH', 'Access denied.');
-    }
-    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
-  }
-});
-
-// Customer reopens ticket
-router.post('/support/tickets/:ticketId/reopen', async (req: Request, res: Response) => {
-  const { tenantId } = getAuthenticatedContext(req);
-  try {
-    const ticket = await supportService.reopenCustomerTicket(req.params.ticketId, tenantId);
-    return sendSuccess(res, ticket);
-  } catch (err: any) {
-    if (err.code === 'TENANT_MISMATCH') {
-      return sendError(res, 403, 'TENANT_MISMATCH', 'Access denied.');
-    }
-    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
-  }
-});
-
-// Secure attachment download
-router.get('/support/tickets/:ticketId/attachments/:attachmentId', (req: Request, res: Response) => {
-  const { tenantId, role } = getAuthenticatedContext(req);
-  try {
-    const attachment = supportService.getAttachment(req.params.attachmentId, {
-      saasCustomerId: tenantId,
-      role,
-    });
-    if (!attachment) {
-      return sendError(res, 404, 'NOT_FOUND', 'Attachment not found');
-    }
-
-    if (attachment.dataBase64) {
-      const buffer = Buffer.from(attachment.dataBase64, 'base64');
-      res.setHeader('Content-Type', attachment.mimeType);
-      res.setHeader('Content-Disposition', `inline; filename="${attachment.fileName}"`);
-      return res.send(buffer);
-    }
-
-    return sendSuccess(res, attachment);
-  } catch (err: any) {
-    if (err.code === 'TENANT_MISMATCH') {
-      return sendError(res, 403, 'TENANT_MISMATCH', 'Unauthorized attachment access across tenants.');
-    }
-    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', err.message);
-  }
-});
-
-// Knowledge base endpoints
-router.get('/support/knowledge-base', (req: Request, res: Response) => {
-  const search = req.query.search as string;
-  const articles = supportService.getKnowledgeBaseArticles(search);
-  return sendSuccess(res, articles);
-});
-
-router.get('/support/knowledge-base/:slug', (req: Request, res: Response) => {
-  const article = supportService.getKnowledgeBaseArticleBySlug(req.params.slug);
-  if (!article) {
-    return sendError(res, 404, 'NOT_FOUND', 'Knowledge base article not found');
-  }
-  return sendSuccess(res, article);
-});
-
-// ==========================================
-// ADMIN ROUTES (PLATFORM_ADMIN ROLE REQUIRED)
-// ==========================================
-
-// Platform high-level operational & revenue metrics
-router.get('/admin/metrics', requirePlatformAdmin, (_req: Request, res: Response) => {
-  const supportStats = supportService.getTicketCountStats();
-  const metrics = customerMgmtService.getPlatformMetrics(supportStats);
-  return sendSuccess(res, metrics);
-});
-
-// Customer Directory listing with search, filtering, and sorting
-router.get('/admin/customers', requirePlatformAdmin, (req: Request, res: Response) => {
-  const options = {
-    search: req.query.search as string,
-    plan: req.query.plan as string,
-    status: req.query.status as string,
-    connectionStatus: req.query.connectionStatus as any,
-    sortBy: req.query.sortBy as any,
-    sortOrder: req.query.sortOrder as any,
-  };
-  const list = customerMgmtService.listCustomers(options);
-  return sendSuccess(res, list);
-});
-
-// Full 9-part Customer Detail
-router.get('/admin/customers/:id', requirePlatformAdmin, async (req: Request, res: Response) => {
-  const allTickets = await supportService.listAdminInbox();
-  const detail = customerMgmtService.getCustomerDetail(req.params.id, allTickets, mockReviews);
-  if (!detail) {
-    return sendError(res, 404, 'NOT_FOUND', 'SaaSCustomer not found');
-  }
-  return sendSuccess(res, detail);
-});
-
-// Add private internal note for customer
-router.post('/admin/customers/:id/notes', requirePlatformAdmin, (req: Request, res: Response) => {
-  const { userId, userName } = getAuthenticatedContext(req);
-  const { note } = req.body;
-  if (!note || !note.trim()) {
-    return sendError(res, 400, 'VALIDATION_ERROR', 'Note content is required.');
-  }
-
-  const createdNote = customerMgmtService.addCustomerNote(
-    req.params.id,
-    userId,
-    userName,
-    note.trim()
-  );
-  return sendSuccess(res, createdNote);
-});
-
-// Delete customer note
-router.delete('/admin/customers/:id/notes/:noteId', requirePlatformAdmin, (req: Request, res: Response) => {
-  const { userId } = getAuthenticatedContext(req);
-  const deleted = customerMgmtService.deleteCustomerNote(req.params.id, req.params.noteId, userId);
-  if (!deleted) {
-    return sendError(res, 404, 'NOT_FOUND', 'Note not found or already deleted');
-  }
-  return sendSuccess(res, { deleted: true });
-});
-
-// Audited Read-Only "View as Customer" Impersonation session
-router.post('/admin/customers/:id/view-as-customer', requirePlatformAdmin, (req: Request, res: Response) => {
-  const { userId, userName, userEmail, role } = getAuthenticatedContext(req);
-  const session = customerMgmtService.generateReadOnlyCustomerSession(req.params.id, {
-    id: userId,
-    name: userName,
-    email: userEmail,
-    role,
-  });
-
-  if (!session.success) {
-    return sendError(res, 404, 'NOT_FOUND', session.error || 'Failed to initiate customer view');
-  }
-
-  return sendSuccess(res, session.impersonationContext);
-});
-
-// Admin Support Inbox with filtered views
-router.get('/admin/support/inbox', requirePlatformAdmin, async (req: Request, res: Response) => {
-  const { userId } = getAuthenticatedContext(req);
-  const view = req.query.view as any;
-  const category = req.query.category as string;
-  const search = req.query.search as string;
-
-  const tickets = await supportService.listAdminInbox({
-    view,
-    adminId: userId,
-    category,
-    search,
-  });
-  return sendSuccess(res, tickets);
-});
-
-// Admin Ticket Detail (includes internal notes and AI assistant suggestion)
-router.get('/admin/support/tickets/:ticketId', requirePlatformAdmin, async (req: Request, res: Response) => {
-  // Grab customer context for AI guidance
-  const allTickets = await supportService.listAdminInbox();
-  const ticketRef = allTickets.find((t) => t.id === req.params.ticketId);
-  let customerContext;
-
-  if (ticketRef) {
-    const custDetail = customerMgmtService.getCustomerDetail(ticketRef.saasCustomerId, allTickets, mockReviews);
-    if (custDetail) {
-      customerContext = {
-        customerName: custDetail.customer.name,
-        plan: custDetail.subscription?.plan || 'STARTER',
-        googleLocationsCount: custDetail.locations.length,
-        hasGoogleConnectionError: custDetail.stats.hasConnectionFailure,
-        recentRiskFlagsCount: custDetail.stats.riskFlagsCount,
-        billingStatus: custDetail.subscription?.status || 'ACTIVE',
-      };
-    }
-  }
-
-  const ticket = await supportService.getAdminTicketDetail(req.params.ticketId, customerContext);
-  if (!ticket) {
-    return sendError(res, 404, 'NOT_FOUND', 'Support ticket not found');
-  }
+  const ticket = await supportService.createTicket(mockSaaSCustomerId, email || 'user@example.com', subject, message);
   return sendSuccess(res, ticket);
 });
 
-// Admin replies to customer ticket (sends notification to customer)
-router.post('/admin/support/tickets/:ticketId/reply', requirePlatformAdmin, async (req: Request, res: Response) => {
-  const { userId, userName, userEmail } = getAuthenticatedContext(req);
-  const { message, attachments } = req.body;
-
-  if (!message || !message.trim()) {
-    return sendError(res, 400, 'VALIDATION_ERROR', 'Message text is required.');
-  }
-
-  try {
-    const reply = await supportService.adminReply(
-      req.params.ticketId,
-      { id: userId, name: userName, email: userEmail },
-      message,
-      attachments
-    );
-    return sendSuccess(res, reply);
-  } catch (err: any) {
-    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
-  }
+// ==========================================
+// ADMIN ROUTES (SUPER_ADMIN ROLE REQUIRED)
+// ==========================================
+router.get('/admin/metrics', (req: Request, res: Response) => {
+  if (!verifyAdminRole(req, res)) return;
+  return sendSuccess(res, {
+    totalSaaSCustomers: 148,
+    activeSubscribers: 142,
+    totalLocationsManaged: 184,
+    reviewsProcessedLast30Days: 4120,
+    autoPublishedPercentage: 78.4,
+    approvalQueueCount: 38,
+    criticalRisksDetected: 12,
+  });
 });
 
-// Admin adds internal private note on ticket (never visible to customer)
-router.post('/admin/support/tickets/:ticketId/internal-notes', requirePlatformAdmin, async (req: Request, res: Response) => {
-  const { userId, userName } = getAuthenticatedContext(req);
-  const { note } = req.body;
-
-  if (!note || !note.trim()) {
-    return sendError(res, 400, 'VALIDATION_ERROR', 'Internal note content is required.');
-  }
-
-  try {
-    const internalNote = await supportService.addInternalNote(
-      req.params.ticketId,
-      { id: userId, name: userName },
-      note
-    );
-    return sendSuccess(res, internalNote);
-  } catch (err: any) {
-    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
-  }
-});
-
-// Admin updates ticket metadata (status, priority, assignment)
-router.patch('/admin/support/tickets/:ticketId', requirePlatformAdmin, async (req: Request, res: Response) => {
-  const { status, priority, assignedAdminId, assignedAdminName } = req.body;
-  try {
-    const updated = await supportService.updateTicketMetadata(req.params.ticketId, {
-      status,
-      priority,
-      assignedAdminId,
-      assignedAdminName,
-    });
-    return sendSuccess(res, updated);
-  } catch (err: any) {
-    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
-  }
+router.get('/admin/customers', (req: Request, res: Response) => {
+  if (!verifyAdminRole(req, res)) return;
+  return sendSuccess(res, [
+    {
+      id: mockSaaSCustomerId,
+      name: 'Downtown Dental SF',
+      billingEmail: 'billing@downtowndental-sf.com',
+      status: 'ACTIVE',
+      locationsCount: 1,
+      plan: 'STARTER',
+    },
+    {
+      id: 'saas_cust_demo_02',
+      name: 'Golden Gate Auto Repair',
+      billingEmail: 'service@goldengateauto.com',
+      status: 'ACTIVE',
+      locationsCount: 2,
+      plan: 'GROWTH',
+    },
+  ]);
 });
 
 export default router;
-

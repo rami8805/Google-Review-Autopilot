@@ -11,6 +11,17 @@
 
 import { FORBIDDEN_AI_INVENTIONS } from '../../shared/constants/automation';
 
+const FORBIDDEN_PATTERNS: Record<string, RegExp> = {
+  refunds: /\brefund(s|ed|ing)?\b/i,
+  discounts: /\bdiscount(s|ed|ing)?\b/i,
+  compensation: /\b(compensation|compensate|reimburse|reimbursement)\b/i,
+  employees: /\bemployee(s)?\b/i,
+  policies: /\bpolic(y|ies)\b/i,
+  promises: /\bpromise(s|d)?\b/i,
+  events: /\bevent(s)?\b/i,
+  'actions not present in trusted context': /\b(guarantee(s|d)?|settlement)\b/i,
+};
+
 export function checkForbiddenInventions(generatedText: string): {
   isSafe: boolean;
   violations: string[];
@@ -19,10 +30,8 @@ export function checkForbiddenInventions(generatedText: string): {
   const lower = generatedText.toLowerCase();
 
   for (const forbidden of FORBIDDEN_AI_INVENTIONS) {
-    // Check if forbidden term or variation appears (stem matching handles singular/plural)
-    const stem = forbidden.endsWith('s') ? forbidden.slice(0, -1) : forbidden;
-    const regex = new RegExp(`\\b${stem.replace('actions not present in trusted context', 'guarantee')}\\w*\\b`, 'i');
-    if (regex.test(lower)) {
+    const pattern = FORBIDDEN_PATTERNS[forbidden] || new RegExp(`\\b${forbidden}\\b`, 'i');
+    if (pattern.test(lower)) {
       violations.push(forbidden);
     }
   }
