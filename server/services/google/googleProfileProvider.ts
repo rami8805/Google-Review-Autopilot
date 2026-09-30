@@ -91,15 +91,8 @@ export class GoogleBusinessProfileService implements IGoogleBusinessProfileProvi
     expiresIn: number;
     accountId: string;
   }> {
-    // In production, posts to https://oauth2.googleapis.com/token
-    if (!this.clientSecret) {
-      // Mock development fallback
-      return {
-        accessToken: `ya29.mock_access_token_${Date.now()}`,
-        refreshToken: `1//mock_refresh_token_${Date.now()}`,
-        expiresIn: 3600,
-        accountId: 'accounts/mock-google-account-123',
-      };
+    if (!this.clientSecret || !this.clientId || !this.redirectUri) {
+      throw new Error('Google OAuth configuration is incomplete');
     }
 
     const response = await fetch('https://oauth2.googleapis.com/token', {
@@ -118,22 +111,25 @@ export class GoogleBusinessProfileService implements IGoogleBusinessProfileProvi
       throw new Error(`Google OAuth code exchange failed with HTTP ${response.status}`);
     }
 
-    const data = await response.json();
-    return {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      expiresIn: data.expires_in,
-      accountId: 'accounts/google-account',
-    };
+    const data = await response.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
+    if (!data.access_token || !data.refresh_token) throw new Error('Google OAuth response did not include required tokens');
+
+    const accountsResponse = await fetch('https://mybusinessaccountmanagement.googleapis.com/v1/accounts', {
+      headers: { Authorization: `Bearer ${data.access_token}` },
+    });
+    if (!accountsResponse.ok) throw new Error(`Google account listing failed with HTTP ${accountsResponse.status}`);
+    const accountsData = await accountsResponse.json() as { accounts?: Array<{ name?: string }> };
+    const accountId = accountsData.accounts?.[0]?.name;
+    if (!accountId) throw new Error('No Google Business Profile account is available for this user');
+
+    return { accessToken: data.access_token, refreshToken: data.refresh_token, expiresIn: data.expires_in || 3600, accountId };
   }
 
   async refreshAccessToken(refreshToken: string): Promise<{
     accessToken: string;
     expiresIn: number;
   }> {
-    if (!this.clientSecret) {
-      return { accessToken: `ya29.mock_refreshed_${Date.now()}`, expiresIn: 3600 };
-    }
+    if (!this.clientSecret || !this.clientId) throw new Error('Google OAuth configuration is incomplete');
 
     const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -157,45 +153,86 @@ export class GoogleBusinessProfileService implements IGoogleBusinessProfileProvi
     };
   }
 
-  async listLocations(_accessToken: string, _accountId: string): Promise<GoogleLocationDto[]> {
-    return [
-      {
-        locationId: 'loc_98231',
-        locationName: 'Downtown Dental Practice',
-        addressLines: ['104 Market Street', 'Suite 200'],
-        locality: 'San Francisco',
-        administrativeArea: 'CA',
-        postalCode: '94103',
-        country: 'US',
-        primaryCategory: 'Dentist',
-        primaryPhone: '+1-415-555-0199',
-      },
-    ];
+  async listLocations(accessToken: string, accountId: string): Promise<GoogleLocationDto[]> {
+    if (!accessToken || !accountId) throw new Error('Google access token and account ID are required');
+
+    const response = await fetch(
+      `https://mybusinessbusinessinformation.googleapis.com/v1/${accountId}/locations?readMask=name,title,storefrontAddress,phoneNumbers,primaryCategory`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!response.ok) throw new Error(`Google locations request failed with HTTP ${response.status}`);
+
+    const data = await response.json() as { locations?: any[] };
+    return (data.locations || []).map((location) => ({
+      locationId: String(location.name || '').split('/').pop() || '',
+      locationName: location.title || '',
+      addressLines: location.storefrontAddress?.addressLines || [],
+      locality: location.storefrontAddress?.locality || '',
+      administrativeArea: location.storefrontAddress?.administrativeArea || '',
+      postalCode: location.storefrontAddress?.postalCode || '',
+      country: location.storefrontAddress?.regionCode || '',
+      primaryCategory: location.primaryCategory?.displayName,
+      primaryPhone: location.phoneNumbers?.primaryPhone,
+    }));
   }
 
   async listReviews(
-    _accessToken: string,
-    _locationName: string,
-    _pageToken?: string
+    accessToken: string,
+    locationName: string,
+    pageToken?: string
   ): Promise<{ reviews: GoogleReviewDto[]; nextPageToken?: string }> {
+    if (!accessToken || !locationName) throw new Error('Google access token and location name are required');
+    const url = new URL(`https://mybusiness.googleapis.com/v4/${locationName}/reviews`);
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!response.ok) throw new Error(`Google reviews request failed with HTTP ${response.status}`);
+    const data = await response.json() as { reviews?: any[]; nextPageToken?: string };
     return {
-      reviews: [],
+      reviews: (data.reviews || []).map((review) => ({
+        reviewId: String(review.name || '').split('/').pop() || '',
+        name: review.name,
+        reviewer: {
+          displayName: review.reviewer?.displayName || 'Google Reviewer',
+          profilePhotoUrl: review.reviewer?.profilePhotoUrl,
+          isAnonymous: Boolean(review.reviewer?.isAnonymous),
+        },
+        starRating: ({ ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 } as Record<string, 1|2|3|4|5>)[review.starRating] || 5,
+        comment: review.comment,
+        createTime: review.createTime,
+        updateTime: review.updateTime,
+      })),
+      nextPageToken: data.nextPageToken,
     };
   }
 
   async publishReviewReply(
-    _accessToken: string,
+    accessToken: string,
     reviewName: string,
     comment: string
   ): Promise<{ replyName: string; comment: string; updateTime: string }> {
+    if (!accessToken || !reviewName) throw new Error('Google access token and review name are required');
+    const response = await fetch(`https://mybusiness.googleapis.com/v4/${reviewName}/reply`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comment }),
+    });
+    if (!response.ok) throw new Error(`Google reply publication failed with HTTP ${response.status}`);
+    const data = await response.json() as any;
     return {
-      replyName: `${reviewName}/reply`,
-      comment,
-      updateTime: new Date().toISOString(),
+      replyName: data.name || `${reviewName}/reply`,
+      comment: data.comment || comment,
+      updateTime: data.updateTime || new Date().toISOString(),
     };
   }
 
-  async deleteReviewReply(_accessToken: string, _reviewName: string): Promise<void> {
-    return;
+  async deleteReviewReply(accessToken: string, reviewName: string): Promise<void> {
+    if (!accessToken || !reviewName) throw new Error('Google access token and review name are required');
+    const response = await fetch(`https://mybusiness.googleapis.com/v4/${reviewName}/reply`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Google reply deletion failed with HTTP ${response.status}`);
+    }
   }
 }
