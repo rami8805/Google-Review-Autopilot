@@ -21,6 +21,7 @@ import { GoogleBusinessProfileService } from '../services/google/googleProfilePr
 import { BillingService } from '../services/billing/billingService';
 import { SupportService } from '../services/support/supportService';
 import { ReviewSyncJob } from '../jobs/reviewSyncJob';
+import { ReplyGuardService } from '../services/workflow/replyGuardService';
 
 const router = Router();
 
@@ -29,6 +30,7 @@ const googleService = new GoogleBusinessProfileService();
 const billingService = new BillingService();
 const supportService = new SupportService();
 const reviewSyncJob = new ReviewSyncJob();
+const replyGuard = new ReplyGuardService();
 
 // Mock in-memory state for initial bootstrap demonstration
 const mockSaaSCustomerId = 'saas_cust_demo_01';
@@ -211,6 +213,31 @@ let mockReplies: Record<string, ReviewReply> = {
     status: 'AUTO_PUBLISHED',
     generatedByAi: true,
     aiModel: 'gemini-3.8-flash',
+    guardResult: {
+      decision: 'AUTO_PUBLISH',
+      overallRisk: 'LOW',
+      checks: {
+        fact: { status: 'PASS', severity: 'LOW', reason: 'No unverified operational facts or unauthorized claims.' },
+        risk: { status: 'PASS', severity: 'LOW', reason: 'Positive 5★ rating with zero legal, medical, or safety hazards.' },
+        tone: { status: 'PASS', severity: 'LOW', reason: 'Warm, professional, appreciative brand voice.' },
+        repetition: { status: 'PASS', severity: 'LOW', reason: 'Distinct phrasing.' },
+        privacy: { status: 'PASS', severity: 'LOW', reason: 'No customer PII or unauthorized contact info.' },
+        promise: { status: 'PASS', severity: 'LOW', reason: 'No binding promises or financial commitments.' },
+        legalSafety: { status: 'PASS', severity: 'LOW', reason: 'Complies with Google content and liability policies.' },
+        quality: { status: 'PASS', severity: 'LOW', reason: 'Concise (32 words), coherent, free of AI artifacts.' },
+      },
+      regenerationAllowed: false,
+      summary: 'Reply Guard passed all 8 safety gates. Approved for Google publication.',
+      customerExplanation: '5★ positive review verified safe by Reply Guard and auto-published to Google.',
+      adminDiagnostics: {
+        checks: {} as any,
+        failedCheckNames: [],
+        executionTimeMs: 14,
+        regenerationAttempts: 0,
+        aiModelUsed: 'gemini-3.8-flash',
+        evaluatedAt: new Date(Date.now() - 3600000 * 3.5).toISOString(),
+      },
+    },
     publishedAt: new Date(Date.now() - 3600000 * 3.5).toISOString(),
     createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
     updatedAt: new Date(Date.now() - 3600000 * 3.5).toISOString(),
@@ -224,6 +251,31 @@ let mockReplies: Record<string, ReviewReply> = {
     status: 'PENDING_APPROVAL',
     generatedByAi: true,
     aiModel: 'gemini-3.8-flash',
+    guardResult: {
+      decision: 'REQUIRE_APPROVAL',
+      overallRisk: 'MEDIUM',
+      checks: {
+        fact: { status: 'PASS', severity: 'LOW', reason: 'Refers only to trusted contact channel.' },
+        risk: { status: 'WARNING', severity: 'MEDIUM', reason: '3★ review reporting scheduling friction; held for owner oversight.' },
+        tone: { status: 'PASS', severity: 'LOW', reason: 'Professional and courteous.' },
+        repetition: { status: 'PASS', severity: 'LOW', reason: 'No repetitive phrasing detected.' },
+        privacy: { status: 'PASS', severity: 'LOW', reason: 'Uses verified practice contact email.' },
+        promise: { status: 'PASS', severity: 'LOW', reason: 'Makes no promises of compensation or appointments.' },
+        legalSafety: { status: 'PASS', severity: 'LOW', reason: 'No liability admissions.' },
+        quality: { status: 'PASS', severity: 'LOW', reason: 'Clear and concise.' },
+      },
+      regenerationAllowed: false,
+      summary: 'Reply Guard routed to manual approval (Risk: MEDIUM; Flags: 3★ Oversight Rule).',
+      customerExplanation: 'Held for owner approval according to your 3★ oversight safety rule.',
+      adminDiagnostics: {
+        checks: {} as any,
+        failedCheckNames: ['risk'],
+        executionTimeMs: 18,
+        regenerationAttempts: 0,
+        aiModelUsed: 'gemini-3.8-flash',
+        evaluatedAt: new Date(Date.now() - 3600000 * 18).toISOString(),
+      },
+    },
     createdAt: new Date(Date.now() - 3600000 * 18).toISOString(),
     updatedAt: new Date(Date.now() - 3600000 * 18).toISOString(),
   },
@@ -236,6 +288,31 @@ let mockReplies: Record<string, ReviewReply> = {
     status: 'PENDING_APPROVAL',
     generatedByAi: true,
     aiModel: 'gemini-3.8-flash',
+    guardResult: {
+      decision: 'REQUIRE_APPROVAL',
+      overallRisk: 'CRITICAL',
+      checks: {
+        fact: { status: 'PASS', severity: 'LOW', reason: 'Safely redirected to private channel without inventing settlements.' },
+        risk: { status: 'BLOCK', severity: 'CRITICAL', reason: 'Legal threat and prompt injection attempt intercepted.' },
+        tone: { status: 'PASS', severity: 'LOW', reason: 'Neutral, de-escalating tone.' },
+        repetition: { status: 'PASS', severity: 'LOW', reason: 'Unique response.' },
+        privacy: { status: 'PASS', severity: 'LOW', reason: 'Protected patient privacy.' },
+        promise: { status: 'PASS', severity: 'LOW', reason: 'Zero refund or discount concessions made.' },
+        legalSafety: { status: 'PASS', severity: 'LOW', reason: 'Avoided admitting liability under legal threat.' },
+        quality: { status: 'PASS', severity: 'LOW', reason: 'Prompt injection was neutralised.' },
+      },
+      regenerationAllowed: false,
+      summary: 'Reply Guard blocked automatic publication (Risk: CRITICAL; Flags: Legal Threat, Prompt Injection).',
+      customerExplanation: 'Review requires approval due to sensitive legal or regulatory terms.',
+      adminDiagnostics: {
+        checks: {} as any,
+        failedCheckNames: ['risk'],
+        executionTimeMs: 22,
+        regenerationAttempts: 0,
+        aiModelUsed: 'gemini-3.8-flash',
+        evaluatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+      },
+    },
     createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
     updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
   },
@@ -509,11 +586,22 @@ router.post('/google/sync-reviews', async (req: Request, res: Response) => {
     updatedAt: new Date().toISOString(),
   };
 
-  // Run through ReviewSyncJob: risk scoring, draft generation, rule evaluation
+  // Run through ReviewSyncJob: risk scoring, draft generation, Reply Guard safety layer, rule evaluation
+  logAuditEvent(mockSaaSCustomerId, 'GUARD_STARTED', 'REVIEW', newReview.id, 'SYSTEM_JOB', {
+    starRating: newReview.starRating,
+    commentPreview: newReview.comment?.substring(0, 60),
+  });
+
+  const recentReplies = Object.values(mockReplies).map((r) => ({
+    proposedText: r.proposedText,
+    publishedText: r.publishedText,
+  }));
+
   const { reply, result } = await reviewSyncJob.processIngestedReview({
     review: newReview,
     brandVoice: mockBrandVoice,
     rules: mockRules,
+    recentReplies,
   });
 
   // Persist in-memory state
@@ -521,19 +609,47 @@ router.post('/google/sync-reviews', async (req: Request, res: Response) => {
   mockReviews.unshift(newReview);
   mockReplies[reply.id] = reply;
 
-  logAuditEvent(
-    mockSaaSCustomerId,
-    result.actionTaken === 'AUTO_PUBLISHED' ? 'AUTO_PUBLISHED_REPLY' : 'STAGED_REPLY_FOR_APPROVAL',
-    'REVIEW',
-    newReview.id,
-    'SYSTEM_JOB',
-    {
+  // Log Reply Guard observability audit events
+  if (result.regenerationCount && result.regenerationCount > 0) {
+    logAuditEvent(mockSaaSCustomerId, 'REPLY_REGENERATED', 'REPLY', reply.id, 'SYSTEM_JOB', {
+      regenerationCount: result.regenerationCount,
+      reason: reply.guardResult?.regenerationReason,
+    });
+  }
+
+  if (result.actionTaken === 'AUTO_PUBLISHED') {
+    logAuditEvent(mockSaaSCustomerId, 'GUARD_PASSED', 'REPLY', reply.id, 'SYSTEM_JOB', {
+      guardDecision: result.guardDecision,
+      overallRisk: reply.guardResult?.overallRisk,
+    });
+    logAuditEvent(mockSaaSCustomerId, 'AUTO_PUBLISH_ALLOWED', 'REPLY', reply.id, 'SYSTEM_JOB');
+    logAuditEvent(mockSaaSCustomerId, 'AUTO_PUBLISHED_REPLY', 'REVIEW', newReview.id, 'SYSTEM_JOB', {
       starRating: newReview.starRating,
       riskLevel: result.riskLevel,
-      actionTaken: result.actionTaken,
       replyId: reply.id,
+    });
+  } else {
+    if (result.guardDecision === 'BLOCK') {
+      logAuditEvent(mockSaaSCustomerId, 'GUARD_BLOCKED', 'REPLY', reply.id, 'SYSTEM_JOB', {
+        guardDecision: result.guardDecision,
+        failedChecks: reply.guardResult?.adminDiagnostics?.failedCheckNames,
+      });
+    } else {
+      logAuditEvent(mockSaaSCustomerId, 'GUARD_WARNING', 'REPLY', reply.id, 'SYSTEM_JOB', {
+        guardDecision: result.guardDecision,
+        customerExplanation: result.customerExplanation,
+      });
     }
-  );
+    logAuditEvent(mockSaaSCustomerId, 'AUTO_PUBLISH_DENIED', 'REPLY', reply.id, 'SYSTEM_JOB', {
+      reason: result.customerExplanation,
+    });
+    logAuditEvent(mockSaaSCustomerId, 'APPROVAL_REQUIRED', 'REVIEW', newReview.id, 'SYSTEM_JOB', {
+      starRating: newReview.starRating,
+      riskLevel: result.riskLevel,
+      replyId: reply.id,
+      customerExplanation: result.customerExplanation,
+    });
+  }
 
   return sendSuccess(res, {
     syncedLocationId: mockLocation.id,
@@ -621,6 +737,27 @@ router.post('/reviews/:id/regenerate', async (req: Request, res: Response) => {
     riskAssessment,
   });
 
+  const recentReplies = Object.values(mockReplies).map((r) => ({
+    proposedText: r.proposedText,
+    publishedText: r.publishedText,
+  }));
+
+  const guardResult = await replyGuard.validateReply({
+    review,
+    generatedReply: proposedText,
+    businessContext: mockBrandVoice.trustedBusinessContext,
+    brandVoice: mockBrandVoice,
+    recentReplies,
+    automationRules: mockRules,
+    regenerationAttempts: 1,
+  });
+
+  logAuditEvent(mockSaaSCustomerId, 'REPLY_REGENERATED', 'REVIEW', review.id, 'USER', {
+    replyId: review.replyId,
+    guardDecision: guardResult.decision,
+    overallRisk: guardResult.overallRisk,
+  });
+
   let reply = review.replyId ? mockReplies[review.replyId] : undefined;
   if (!reply) {
     reply = {
@@ -632,6 +769,8 @@ router.post('/reviews/:id/regenerate', async (req: Request, res: Response) => {
       status: 'PENDING_APPROVAL',
       generatedByAi: true,
       aiModel: model,
+      guardResult,
+      regenerationCount: 1,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -640,6 +779,8 @@ router.post('/reviews/:id/regenerate', async (req: Request, res: Response) => {
   } else {
     reply.proposedText = proposedText;
     reply.aiModel = model;
+    reply.guardResult = guardResult;
+    reply.regenerationCount = (reply.regenerationCount || 0) + 1;
     reply.status = 'PENDING_APPROVAL';
     reply.updatedAt = new Date().toISOString();
   }

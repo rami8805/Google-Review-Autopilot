@@ -12,6 +12,7 @@ import {
   Check,
   Zap,
   ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface ApprovalQueueProps {
@@ -210,6 +211,41 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
                   <div className="flex items-center gap-2 text-xs text-amber-800 bg-amber-50/70 border border-amber-200 px-3 py-2 rounded-lg">
                     <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                     <span>{review.riskAssessment.explanation}</span>
+                  </div>
+                )}
+
+                {/* Reply Guard Customer Explanation (Simple, non-technical why human approval is required) */}
+                {reply?.guardResult && (
+                  <div
+                    className={`flex items-start sm:items-center justify-between gap-3 text-xs px-3.5 py-2.5 rounded-xl border ${
+                      reply.guardResult.decision === 'AUTO_PUBLISH'
+                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800'
+                        : reply.guardResult.overallRisk === 'CRITICAL'
+                        ? 'bg-rose-50 border-rose-200 text-rose-800'
+                        : 'bg-indigo-50/70 border-indigo-200 text-indigo-900'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck
+                        className={`w-4 h-4 shrink-0 ${
+                          reply.guardResult.decision === 'AUTO_PUBLISH'
+                            ? 'text-emerald-600'
+                            : reply.guardResult.overallRisk === 'CRITICAL'
+                            ? 'text-rose-600'
+                            : 'text-indigo-600'
+                        }`}
+                      />
+                      <span>
+                        <strong className="font-semibold">Reply Guard: </strong>
+                        {reply.guardResult.customerExplanation}
+                      </span>
+                    </div>
+
+                    {reply.regenerationCount && reply.regenerationCount > 0 && (
+                      <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                        Auto-adjusted (1 turn)
+                      </span>
+                    )}
                   </div>
                 )}
 

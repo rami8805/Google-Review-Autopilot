@@ -3,45 +3,53 @@ import type {
   ReviewReply,
   AutomationRule,
   BrandVoice,
+  GuardDecision,
 } from '../../shared/types/domain';
 import { DEFAULT_AUTOMATION_RULES, RISK_LEVEL_SEVERITY } from '../../shared/constants/automation';
 import { GeminiAiReplyEngine } from '../services/ai/aiReplyEngine';
 import { GoogleBusinessProfileService } from '../services/google/googleProfileProvider';
 import { NotificationService } from '../services/notifications/notificationService';
+import { ReplyGuardService } from '../services/workflow/replyGuardService';
 
 export interface IngestionResult {
   reviewId: string;
   actionTaken: 'AUTO_PUBLISHED' | 'STAGED_FOR_APPROVAL' | 'GRACE_PERIOD_SCHEDULED';
   riskLevel: string;
+  guardDecision?: GuardDecision;
+  customerExplanation?: string;
+  regenerationCount?: number;
 }
 
 export class ReviewSyncJob {
   private aiEngine: GeminiAiReplyEngine;
   private googleService: GoogleBusinessProfileService;
   private notificationService: NotificationService;
+  private replyGuard: ReplyGuardService;
 
   constructor() {
     this.aiEngine = new GeminiAiReplyEngine();
     this.googleService = new GoogleBusinessProfileService();
     this.notificationService = new NotificationService();
+    this.replyGuard = new ReplyGuardService();
   }
 
   /**
-   * Process a single review through the safety and automation rule engine.
+   * Process a single review through AI generation, the Reply Guard safety layer, and the automation rule engine.
    */
   async processIngestedReview(params: {
     review: Review;
     brandVoice: BrandVoice;
     rules?: AutomationRule[];
+    recentReplies?: Array<{ proposedText: string; publishedText?: string }>;
   }): Promise<{ reply: ReviewReply; result: IngestionResult }> {
-    const { review, brandVoice, rules } = params;
+    const { review, brandVoice, rules, recentReplies = [] } = params;
 
     // Phase 1: Risk Assessment
     const riskAssessment = await this.aiEngine.assessRisk(review.comment || '', review.starRating);
     review.riskAssessment = riskAssessment;
 
-    // Phase 2: AI Reply Draft Generation (Strictly guarded)
-    const { proposedText, model } = await this.aiEngine.generateReplyDraft({
+    // Phase 2: AI Reply Draft Generation
+    let { proposedText, model } = await this.aiEngine.generateReplyDraft({
       reviewText: review.comment || '',
       authorName: review.author.displayName,
       rating: review.starRating,
@@ -49,24 +57,71 @@ export class ReviewSyncJob {
       riskAssessment,
     });
 
-    // Phase 3: Evaluate Automation Rules
-    // Rule matching by star rating
-    const matchingRule = rules?.find((r) => r.starRating === review.starRating && r.isActive) ||
+    // Phase 3: Reply Guard Safety Layer (Gate 1)
+    let guardResult = await this.replyGuard.validateReply({
+      review,
+      generatedReply: proposedText,
+      businessContext: brandVoice.trustedBusinessContext,
+      brandVoice,
+      recentReplies,
+      automationRules: rules,
+      regenerationAttempts: 0,
+    });
+
+    let regenerationCount = 0;
+
+    // Phase 4: Single-Turn Regeneration if Reply Guard flags fixable issue
+    if (guardResult.decision === 'BLOCK_AND_REGENERATE' && guardResult.regenerationAllowed) {
+      regenerationCount = 1;
+      const regenerated = await this.aiEngine.regenerateReplyWithGuardFeedback({
+        reviewText: review.comment || '',
+        authorName: review.author.displayName,
+        rating: review.starRating,
+        brandVoice,
+        originalDraft: proposedText,
+        guardIssues: guardResult.summary,
+        riskAssessment,
+      });
+
+      proposedText = regenerated.proposedText;
+      model = regenerated.model;
+
+      // Re-evaluate regenerated draft through Reply Guard
+      guardResult = await this.replyGuard.validateReply({
+        review,
+        generatedReply: proposedText,
+        businessContext: brandVoice.trustedBusinessContext,
+        brandVoice,
+        recentReplies,
+        automationRules: rules,
+        regenerationAttempts: 1,
+      });
+    }
+
+    // Phase 5: Automation Rules & Publishing Decision
+    const matchingRule =
+      rules?.find((r) => r.starRating === review.starRating && r.isActive) ||
       DEFAULT_AUTOMATION_RULES.find((r) => r.starRating === review.starRating);
 
     let isEligibleForAutoPublish = false;
 
-    if (matchingRule && matchingRule.action === 'AUTO_PUBLISH') {
+    // INVARIANT: Auto-publish requires:
+    // 1. Reply Guard decision must be strictly AUTO_PUBLISH
+    // 2. Star rating must be 4 or 5 stars
+    // 3. Workflow rule must allow AUTO_PUBLISH
+    // 4. Overall risk and individual risk must be LOW
+    if (
+      guardResult.decision === 'AUTO_PUBLISH' &&
+      review.starRating >= 4 &&
+      guardResult.overallRisk === 'LOW' &&
+      riskAssessment.riskLevel === 'LOW' &&
+      matchingRule &&
+      matchingRule.action === 'AUTO_PUBLISH'
+    ) {
       const currentRiskSeverity = RISK_LEVEL_SEVERITY[riskAssessment.riskLevel];
       const maxAllowedSeverity = RISK_LEVEL_SEVERITY[matchingRule.maxRiskLevelForAutoPublish];
 
-      // Auto publish is permitted ONLY if risk level does not exceed rule limit AND is not HIGH/CRITICAL and rating is 4 or 5 stars
-      if (
-        currentRiskSeverity <= maxAllowedSeverity &&
-        riskAssessment.riskLevel !== 'HIGH' &&
-        riskAssessment.riskLevel !== 'CRITICAL' &&
-        review.starRating >= 4
-      ) {
+      if (currentRiskSeverity <= maxAllowedSeverity) {
         isEligibleForAutoPublish = true;
       }
     }
@@ -80,6 +135,8 @@ export class ReviewSyncJob {
       status: isEligibleForAutoPublish ? 'AUTO_PUBLISHED' : 'PENDING_APPROVAL',
       generatedByAi: true,
       aiModel: model,
+      guardResult,
+      regenerationCount,
       publishedAt: isEligibleForAutoPublish ? new Date().toISOString() : undefined,
       publishedText: isEligibleForAutoPublish ? proposedText : undefined,
       createdAt: new Date().toISOString(),
@@ -87,7 +144,6 @@ export class ReviewSyncJob {
     };
 
     if (isEligibleForAutoPublish) {
-      // Dispatch reply to Google Business Profile API
       try {
         await this.googleService.publishReviewReply(
           'mock_access_token',
@@ -99,7 +155,6 @@ export class ReviewSyncJob {
         reply.publishErrorMessage = (err as Error).message;
       }
     } else {
-      // Alert SaaSCustomer that approval is required
       await this.notificationService.notifyApprovalRequired(
         review.saasCustomerId,
         review.author.displayName,
@@ -114,6 +169,9 @@ export class ReviewSyncJob {
         reviewId: review.id,
         actionTaken: isEligibleForAutoPublish ? 'AUTO_PUBLISHED' : 'STAGED_FOR_APPROVAL',
         riskLevel: riskAssessment.riskLevel,
+        guardDecision: guardResult.decision,
+        customerExplanation: guardResult.customerExplanation,
+        regenerationCount,
       },
     };
   }

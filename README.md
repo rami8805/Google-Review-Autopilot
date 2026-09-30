@@ -41,12 +41,25 @@ We maintain a strict conceptual boundary between our customers and reviewers:
 
 ## 3. Automation & AI Safety Rules
 
-### Default Automation Baseline
-* **5-Star + LOW Risk** ➔ `AUTO_PUBLISH` (after configurable 15-minute grace period)
-* **4-Star + LOW Risk** ➔ `AUTO_PUBLISH` (after configurable 30-minute grace period)
+### Default Automation Baseline & Reply Guard Pipeline
+* **5-Star + LOW Risk** ➔ `AUTO_PUBLISH` (only after passing all 8 Reply Guard safety gates)
+* **4-Star + LOW Risk** ➔ `AUTO_PUBLISH` (only after passing all 8 Reply Guard safety gates)
 * **3-Star** ➔ `REQUIRE_APPROVAL` (never auto-published)
 * **1–2 Stars** ➔ `REQUIRE_APPROVAL` (never auto-published)
 * **HIGH or CRITICAL Risk** ➔ `REQUIRE_APPROVAL` (regardless of star rating)
+
+### Reply Guard Safety Layer (Pre-Publication Gate)
+Reply Guard sits strictly between AI reply generation and Google Business Profile publication:
+1. **Fact Check**: Blocks invented refunds, operational changes, employee actions, appointment bookings.
+2. **Risk Check**: Flags legal threats, injuries, discrimination, violence, and safety hazards.
+3. **Tone Check**: Enforces configured brand voice; blocks aggression, sarcasm, or excessive apologies.
+4. **Repetition Check**: Prevents identical verbatim sentences or >78% semantic similarity across recent location replies.
+5. **Privacy Check**: Blocks unauthorized customer PII (emails, phone numbers, order IDs).
+6. **Promise Check**: Blocks unauthorized guarantees or commitments.
+7. **Legal Safety Check**: Blocks admissions of liability or accusations of reviewer dishonesty.
+8. **Quality Check**: Rejects empty drafts, verbosity (>160 words), or model artifacts.
+* **Bounded Single-Turn Regeneration**: If a fixable issue is detected, allows exactly one regeneration with targeted feedback.
+* **Immutable Decision**: Reply Guard can never lower required human oversight.
 
 ### Strict AI Generation Boundaries
 The AI engine **must never invent**:
@@ -121,7 +134,7 @@ cp .env.example .env
 # Verify TypeScript types
 npm run lint
 
-# Run the full automated test suite (17/17 tests)
+# Run the full automated test suite (42/42 tests)
 npm test
 
 # Production build

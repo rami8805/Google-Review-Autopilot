@@ -10,6 +10,8 @@ import {
   Clock,
   Plus,
   Shield,
+  ShieldCheck,
+  Sparkles,
   X,
   Search,
 } from 'lucide-react';
@@ -345,6 +347,107 @@ export const TenantOverview: React.FC = () => {
                       {tenantDetail.reviews?.filter((r: any) => r.reply?.status === 'PENDING_APPROVAL').length || 0} pending approval
                     </div>
                     <div className="text-[11px] text-emerald-400">AI Safety 100% compliant</div>
+                  </div>
+                </div>
+
+                {/* Reply Guard Safety Diagnostics Section (Admin Only) */}
+                <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                        Reply Guard Safety Diagnostics (Super Admin Inspection)
+                      </h4>
+                    </div>
+                    <span className="text-[10px] text-indigo-400 font-mono">8 Safety Gates Active</span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {(!tenantDetail.reviews || tenantDetail.reviews.length === 0) ? (
+                      <div className="text-xs text-slate-500 py-2">No review replies recorded for this tenant.</div>
+                    ) : (
+                      tenantDetail.reviews.map((rev: any) => {
+                        const guard = rev.reply?.guardResult;
+                        return (
+                          <div
+                            key={rev.id}
+                            className="p-3.5 rounded-lg bg-slate-900 border border-slate-800 space-y-2.5 text-xs"
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-slate-200">{rev.author?.displayName}</span>
+                                <span className="text-[11px] text-amber-400">{rev.starRating}★</span>
+                                <span className="text-[10px] text-slate-500 font-mono">
+                                  {rev.googleReviewId}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {guard && (
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                      guard.decision === 'AUTO_PUBLISH'
+                                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                        : guard.overallRisk === 'CRITICAL'
+                                        ? 'bg-rose-950 text-rose-300 border border-rose-800'
+                                        : 'bg-amber-950 text-amber-300 border border-amber-800'
+                                    }`}
+                                  >
+                                    Guard: {guard.decision}
+                                  </span>
+                                )}
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                    rev.reply?.status === 'AUTO_PUBLISHED'
+                                      ? 'bg-emerald-900/40 text-emerald-300'
+                                      : 'bg-slate-800 text-slate-300'
+                                  }`}
+                                >
+                                  {rev.reply?.status || 'NO_REPLY'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <p className="text-slate-400 italic text-[11px] line-clamp-1">
+                              "{rev.comment || 'No comment'}"
+                            </p>
+
+                            {guard && (
+                              <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                                <div className="text-[11px] text-slate-300">
+                                  <strong>Customer Explanation: </strong>
+                                  <span className="text-slate-400">{guard.customerExplanation}</span>
+                                </div>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] font-mono">
+                                  {Object.entries(guard.checks || {}).map(([name, check]: [string, any]) => (
+                                    <div
+                                      key={name}
+                                      className={`p-1.5 rounded border flex items-center justify-between ${
+                                        check.status === 'PASS'
+                                          ? 'bg-slate-950/60 border-slate-800 text-slate-400'
+                                          : check.severity === 'CRITICAL'
+                                          ? 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                                          : 'bg-amber-950/40 border-amber-800/60 text-amber-300'
+                                      }`}
+                                    >
+                                      <span className="capitalize">{name}</span>
+                                      <span className="font-bold">{check.status}</span>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
+                                  <span>Model: {guard.adminDiagnostics?.aiModelUsed || 'gemini-3.8-flash'}</span>
+                                  <span>Regens: {rev.reply?.regenerationCount || 0} / 1</span>
+                                  <span>Latency: {guard.adminDiagnostics?.executionTimeMs || 15}ms</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
 

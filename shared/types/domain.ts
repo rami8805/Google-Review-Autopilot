@@ -158,6 +158,51 @@ export type ApprovalStatus =
 
 export type ReplyDecisionAction = 'AUTO_PUBLISH' | 'REQUIRE_APPROVAL' | 'DO_NOT_REPLY';
 
+// ==========================================
+// REPLY GUARD SAFETY LAYER TYPES
+// ==========================================
+export type GuardCheckStatus = 'PASS' | 'WARNING' | 'BLOCK';
+export type GuardSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type GuardDecision = 'AUTO_PUBLISH' | 'REQUIRE_APPROVAL' | 'BLOCK_AND_REGENERATE' | 'BLOCK';
+
+export interface GuardCheckResult {
+  status: GuardCheckStatus;
+  severity: GuardSeverity;
+  reason: string;
+  evidence?: string;
+}
+
+export interface GuardChecks {
+  fact: GuardCheckResult;
+  risk: GuardCheckResult;
+  tone: GuardCheckResult;
+  repetition: GuardCheckResult;
+  privacy: GuardCheckResult;
+  promise: GuardCheckResult;
+  legalSafety: GuardCheckResult;
+  quality: GuardCheckResult;
+}
+
+export interface GuardAdminDiagnostics {
+  checks: GuardChecks;
+  failedCheckNames: string[];
+  executionTimeMs: number;
+  regenerationAttempts: number;
+  aiModelUsed?: string;
+  evaluatedAt: string;
+}
+
+export interface GuardResult {
+  decision: GuardDecision;
+  overallRisk: GuardSeverity;
+  checks: GuardChecks;
+  regenerationAllowed: boolean;
+  regenerationReason?: string;
+  summary: string;
+  customerExplanation: string;
+  adminDiagnostics: GuardAdminDiagnostics;
+}
+
 export interface ReviewReply {
   id: string;
   reviewId: string;
@@ -172,6 +217,8 @@ export interface ReviewReply {
   reviewedAt?: string;
   publishedAt?: string;
   publishErrorMessage?: string;
+  guardResult?: GuardResult;
+  regenerationCount?: number;
   createdAt: string;
   updatedAt: string;
 }

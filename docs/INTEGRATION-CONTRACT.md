@@ -92,6 +92,42 @@ export interface IAiReplyEngine {
 
 ---
 
+## 2.1. Reply Guard Safety Layer Contract
+
+All AI drafts must pass server-side validation through `ReplyGuardService` (`server/services/workflow/replyGuardService.ts`) prior to any automated dispatch or staging.
+
+### Core Interface Definition
+```typescript
+export interface GuardInput {
+  review: Review;
+  generatedReply: string;
+  businessContext?: BrandVoice['trustedBusinessContext'];
+  brandVoice?: BrandVoice;
+  recentReplies?: Array<{ proposedText: string; publishedText?: string }>;
+  automationRules?: AutomationRule[];
+  regenerationAttempts?: number;
+}
+
+export interface IReplyGuardService {
+  validateReply(input: GuardInput): Promise<GuardResult>;
+}
+```
+
+### Safety Gate Taxonomy
+1. **Fact Check**: Blocks invented refunds, discounts, comped services, operational actions, or unverified claims.
+2. **Risk Check**: Flags legal threats, injuries, discrimination, violence, and safety hazards.
+3. **Tone Check**: Enforces configured brand voice; blocks aggression, sarcasm, or excessive apologies.
+4. **Repetition Check**: Prevents identical verbatim sentences or >78% semantic similarity across recent location replies.
+5. **Privacy Check**: Blocks unauthorized customer PII (emails, phone numbers, order IDs).
+6. **Promise Check**: Blocks unauthorized guarantees or commitments.
+7. **Legal Safety Check**: Blocks admissions of liability or accusations of reviewer dishonesty.
+8. **Quality Check**: Rejects empty drafts, verbosity (>160 words), or model artifacts.
+
+### Regeneration Bound
+Fixable issues allow at most ONE regeneration cycle with targeted prompt feedback. Indefinite looping is mathematically prevented.
+
+---
+
 ## 3. Stripe Subscription & Billing Contract
 
 Managed via `IBillingProvider` in `server/services/billing/`.

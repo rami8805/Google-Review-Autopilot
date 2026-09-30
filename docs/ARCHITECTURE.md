@@ -107,7 +107,7 @@ The AI is strictly prohibited from inventing or hallucinating:
 * Unilateral guarantees, timelines, or promises
 * Past events, appointments, or interactions not verified in trusted context
 
-### Two-Phase Processing Pipeline:
+### Two-Phase Processing Pipeline & Reply Guard:
 1. **Phase 1: Risk Assessment & Policy Classification**
    * Review text is sanitized and fed into a classification prompt with strict JSON output schemas.
    * Model identifies toxicity, legal threats, compensation demands, employee mentions, and injection attempts.
@@ -115,7 +115,18 @@ The AI is strictly prohibited from inventing or hallucinating:
 2. **Phase 2: Constrained Draft Generation**
    * Prompt strictly injects trusted business context (owner title, verified support email/phone, official tone).
    * Review content is enclosed within structural delimiters with explicit defensive instructions.
-   * If any risk flag is present, the action is forced to `REQUIRE_APPROVAL`.
+3. **Phase 3: Reply Guard Safety Layer (Pre-Publication Gate)**
+   * Every draft must pass 8 server-side safety checks before publication is allowed:
+     - **Fact Check**: Blocks invented refunds, operational changes, employee actions, appointment bookings.
+     - **Risk Check**: Flags legal threats, injuries, discrimination, violence, and regulatory complaints.
+     - **Tone Check**: Enforces configured brand tone; suppresses aggression, sarcasm, or excessive apologies.
+     - **Repetition Check**: Detects duplicate sentences, canned openings, and >78% semantic similarity against recent location replies.
+     - **Privacy Check**: Prevents customer PII leaks (emails, phones, order numbers, booking IDs).
+     - **Promise Check**: Blocks unauthorized operational or financial guarantees.
+     - **Legal Safety Check**: Blocks liability admissions, threats, or public accusations of lying.
+     - **Quality Check**: Rejects empty drafts, verbosity (>160 words), and AI model artifacts.
+   * **Bounded Single-Turn Regeneration**: If a fixable issue is detected, allows exactly one regeneration with targeted feedback.
+   * **Server-Side Enforcement**: Reply Guard decisions (`AUTO_PUBLISH`, `REQUIRE_APPROVAL`, `BLOCK_AND_REGENERATE`, `BLOCK`) cannot be bypassed by client parameters.
 
 ---
 

@@ -18,6 +18,19 @@ export interface IAiReplyEngine {
     model: string;
     tokensUsed?: number;
   }>;
+  regenerateReplyWithGuardFeedback(params: {
+    reviewText: string;
+    authorName: string;
+    rating: number;
+    brandVoice: BrandVoice;
+    originalDraft: string;
+    guardIssues: string;
+    riskAssessment: RiskAssessment;
+  }): Promise<{
+    proposedText: string;
+    model: string;
+    tokensUsed?: number;
+  }>;
 }
 
 export class GeminiAiReplyEngine implements IAiReplyEngine {
@@ -157,6 +170,84 @@ CONSTRAINTS:
         };
       } catch (err) {
         console.warn('Gemini API unavailable or timed out, applying safe deterministic template:', (err as Error).message);
+      }
+    }
+
+    // Deterministic safe fallback
+    return {
+      proposedText: this.buildSafeFallback(authorName, rating, contactInfo, riskAssessment),
+      model: 'safe-deterministic-engine',
+    };
+  }
+
+  async regenerateReplyWithGuardFeedback(params: {
+    reviewText: string;
+    authorName: string;
+    rating: number;
+    brandVoice: BrandVoice;
+    originalDraft: string;
+    guardIssues: string;
+    riskAssessment: RiskAssessment;
+  }): Promise<{ proposedText: string; model: string; tokensUsed?: number }> {
+    const { reviewText, authorName, rating, brandVoice, originalDraft, guardIssues, riskAssessment } = params;
+    const trustedContext = brandVoice.trustedBusinessContext;
+    const contactInfo = trustedContext.contactEmailForInquiries
+      ? `at ${trustedContext.contactEmailForInquiries}`
+      : 'with our team directly';
+
+    const systemPrompt = `
+${UNTRUSTED_REVIEW_DEFENSE_PROMPT}
+
+You are regenerating a public reply to a Google review that failed a safety gate.
+Tone: ${brandVoice.tone}
+Reviewer Name: ${authorName || 'valued customer'}
+Review Star Rating: ${rating}/5
+Trusted Contact: ${contactInfo}
+Services: ${trustedContext.coreServicesOffered.join(', ') || 'our services'}
+
+DETECTED SAFETY / QUALITY ISSUES:
+${guardIssues}
+
+PREVIOUS FAILED DRAFT:
+"${originalDraft}"
+
+CORRECTION INSTRUCTIONS:
+1. Correct ONLY the detected safety issues above.
+2. DO NOT introduce new unsupported facts, operational changes, or guarantees.
+3. Keep under 80 words.
+4. Natural, polite, non-repetitive phrasing.
+5. ABSOLUTELY NEVER offer refunds, discounts, settlements, employee names, or promises.
+`;
+
+    if (this.aiClient) {
+      try {
+        const generatePromise = this.aiClient.models.generateContent({
+          model: this.modelName,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `${systemPrompt}\n\n<untrusted_review_content>\n${reviewText}\n</untrusted_review_content>`,
+                },
+              ],
+            },
+          ],
+        });
+
+        const timeoutMs = process.env.NODE_ENV === 'test' ? 500 : 3500;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Gemini API request timed out')), timeoutMs);
+        });
+
+        const response: any = await Promise.race([generatePromise, timeoutPromise]);
+        let draft = (response?.text || '').trim();
+        if (draft) {
+          draft = this.sanitizeDraft(draft);
+          return { proposedText: draft, model: this.modelName };
+        }
+      } catch (err) {
+        console.warn('Gemini API unavailable or timed out during regeneration:', (err as Error).message);
       }
     }
 
