@@ -12,7 +12,15 @@
  * NOTE: The term "Customer" alone is NEVER used ambiguously in domain models.
  */
 
-export type UserRole = 'OWNER' | 'ADMIN' | 'MEMBER' | 'SUPPORT_AGENT' | 'SUPER_ADMIN';
+export type UserRole =
+  | 'CUSTOMER_OWNER'
+  | 'CUSTOMER_MEMBER'
+  | 'PLATFORM_ADMIN'
+  | 'OWNER'
+  | 'ADMIN'
+  | 'MEMBER'
+  | 'SUPPORT_AGENT'
+  | 'SUPER_ADMIN';
 
 export interface User {
   id: string;
@@ -26,8 +34,36 @@ export interface User {
   updatedAt: string;
 }
 
-export type SubscriptionPlan = 'STARTER' | 'GROWTH' | 'PRO' | 'ENTERPRISE';
-export type SubscriptionStatus = 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'INCOMPLETE';
+export type SubscriptionPlan = 'TRIAL' | 'FREE' | 'PRO' | 'STARTER' | 'GROWTH' | 'ENTERPRISE';
+export type SubscriptionStatus =
+  | 'TRIALING'
+  | 'ACTIVE'
+  | 'PAST_DUE'
+  | 'CANCELED'
+  | 'CANCELLED'
+  | 'INCOMPLETE';
+
+export interface PlanFeatureLimits {
+  locationLimit: number;
+  monthlyReplyLimit: number;
+  hasReviewAutomation: boolean;
+  hasApprovalWorkflow: boolean;
+  hasBrandVoice: boolean;
+  hasGoogleIntegration: boolean;
+  hasSupport: boolean;
+  hasReviewHistory: boolean;
+}
+
+export interface PlanDefinition {
+  id: SubscriptionPlan;
+  name: string;
+  description: string;
+  priceCents: number;
+  currency: string;
+  billingInterval: 'month' | 'year';
+  trialDays: number;
+  limits: PlanFeatureLimits;
+}
 
 export interface Subscription {
   id: string;
@@ -37,12 +73,31 @@ export interface Subscription {
   currentPeriodStart: string;
   currentPeriodEnd: string;
   cancelAtPeriodEnd: boolean;
+  trialEndsAt?: string;
+  cancelledAt?: string;
   locationLimit: number;
   monthlyReplyLimit: number;
+  paymentProviderName?: string;
+  externalCustomerId?: string;
+  externalSubscriptionId?: string;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BillingInvoice {
+  id: string;
+  saasCustomerId: string;
+  externalInvoiceId?: string;
+  amountCents: number;
+  currency: string;
+  status: 'PAID' | 'OPEN' | 'VOID' | 'UNCOLLECTIBLE';
+  description: string;
+  hostedInvoiceUrl?: string;
+  pdfUrl?: string;
+  paidAt?: string;
+  createdAt: string;
 }
 
 export interface SaaSCustomer {
@@ -50,7 +105,7 @@ export interface SaaSCustomer {
   name: string;
   billingEmail: string;
   subscriptionId?: string;
-  status: 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
+  status: 'ACTIVE' | 'SUSPENDED' | 'CANCELLED' | 'PAST_DUE' | 'TRIAL';
   createdAt: string;
   updatedAt: string;
 }

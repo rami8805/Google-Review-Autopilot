@@ -13,21 +13,24 @@ import type {
 import { DEFAULT_AUTOMATION_RULES } from '../../shared/constants/automation';
 import { GeminiAiReplyEngine } from '../services/ai/aiReplyEngine';
 import { GoogleBusinessProfileService } from '../services/google/googleProfileProvider';
-import { BillingService } from '../services/billing/billingService';
+import { billingService } from '../services/billing/billingService';
+import { authService } from '../services/auth/authService';
+import {
+  authenticateUser,
+  optionalAuth,
+  requireRole,
+  tenantGuard,
+  AuthenticatedRequest,
+} from '../services/auth/authMiddleware';
+import { usageService } from '../services/billing/usageService';
+import { PLAN_CATALOG, getPlanDefinition } from '../../shared/constants/billing';
 import { SupportService } from '../services/support/supportService';
-import { ReviewWorkflowService } from '../services/workflow/reviewWorkflowService';
-import type { AutomationMode } from '../services/workflow/types';
 
 const router = Router();
 
 const aiEngine = new GeminiAiReplyEngine();
 const googleService = new GoogleBusinessProfileService();
-const billingService = new BillingService();
 const supportService = new SupportService();
-const workflowService = new ReviewWorkflowService({
-  aiEngine,
-  googleService,
-});
 
 // Mock in-memory state for initial bootstrap demonstration
 const mockSaaSCustomerId = 'saas_cust_demo_01';
@@ -192,9 +195,6 @@ let mockReplies: Record<string, ReviewReply> = {
   },
 };
 
-// Seed workflow service with baseline demo state
-workflowService.seedReviews(mockReviews, Object.values(mockReplies));
-
 // ==========================================
 // Helper functions
 // ==========================================
@@ -226,27 +226,89 @@ function sendError(res: Response, status: number, code: any, message: string, de
 // ==========================================
 // AUTH & CONTEXT ROUTES
 // ==========================================
-router.get('/auth/me', (_req: Request, res: Response) => {
+router.post('/auth/signup', async (req: Request, res: Response) => {
+  try {
+    const { email, password, name, businessName } = req.body || {};
+    if (!email || !password || !name || !businessName) {
+      return sendError(
+        res,
+        400,
+        'VALIDATION_ERROR',
+        'All fields (email, password, name, businessName) are required'
+      );
+    }
+
+    const result = await authService.signup({ email, password, name, businessName });
+    const trialSub = billingService.createTrialSubscription(result.saasCustomer.id, 'PRO');
+
+    return sendSuccess(res, {
+      token: result.token,
+      user: result.user,
+      saasCustomer: result.saasCustomer,
+      business: result.business,
+      subscription: trialSub,
+    });
+  } catch (err: any) {
+    const message = err.message || 'Signup failed';
+    const isConflict = message.includes('EMAIL_EXISTS');
+    return sendError(res, isConflict ? 409 : 400, isConflict ? 'CONFLICT' : 'VALIDATION_ERROR', message);
+  }
+});
+
+router.post('/auth/login', async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'Email and password are required');
+    }
+
+    const result = await authService.login({ email, password });
+    return sendSuccess(res, result);
+  } catch (err: any) {
+    return sendError(res, 401, 'AUTHENTICATION_REQUIRED', err.message || 'Invalid credentials');
+  }
+});
+
+router.get('/auth/me', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !req.saasCustomerId) {
+    return sendError(res, 401, 'AUTHENTICATION_REQUIRED', 'Not authenticated');
+  }
+
+  const customer = authService.getSaaSCustomer(req.saasCustomerId);
   return sendSuccess(res, {
-    user: {
-      id: 'usr_demo_01',
-      email: 'owner@downtowndental-sf.com',
-      name: 'Dr. Sarah Lin',
-      role: 'OWNER',
-      saasCustomerId: mockSaaSCustomerId,
-      emailVerified: true,
-      createdAt: '2026-01-15T00:00:00.000Z',
-      updatedAt: '2026-01-15T00:00:00.000Z',
-    },
-    saasCustomer: {
-      id: mockSaaSCustomerId,
+    user: req.user,
+    saasCustomer: customer || {
+      id: req.saasCustomerId,
       name: 'Downtown Dental SF',
-      billingEmail: 'billing@downtowndental-sf.com',
+      billingEmail: req.user.email,
       status: 'ACTIVE',
-      createdAt: '2026-01-15T00:00:00.000Z',
-      updatedAt: '2026-01-15T00:00:00.000Z',
+      createdAt: req.user.createdAt,
+      updatedAt: req.user.updatedAt,
     },
   });
+});
+
+router.post(
+  '/auth/invite',
+  authenticateUser,
+  requireRole(['CUSTOMER_OWNER', 'OWNER']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { email, name, role } = req.body || {};
+      if (!email || !name) {
+        return sendError(res, 400, 'VALIDATION_ERROR', 'Email and name are required');
+      }
+
+      const invitedUser = await authService.inviteMember(req.user!.id, { email, name, role });
+      return sendSuccess(res, invitedUser);
+    } catch (err: any) {
+      return sendError(res, 400, 'VALIDATION_ERROR', err.message || 'Invitation failed');
+    }
+  }
+);
+
+router.post('/auth/logout', (_req: Request, res: Response) => {
+  return sendSuccess(res, { message: 'Logged out successfully' });
 });
 
 // ==========================================
@@ -261,22 +323,7 @@ router.get('/google/locations', (_req: Request, res: Response) => {
   return sendSuccess(res, [mockLocation]);
 });
 
-router.post('/google/sync-reviews', async (req: Request, res: Response) => {
-  // If specific new review provided in request body, process it through the workflow
-  if (req.body?.review) {
-    const result = await workflowService.processReview({
-      review: req.body.review,
-      brandVoice: mockBrandVoice,
-      customRules: mockRules,
-    });
-    return sendSuccess(res, {
-      syncedLocationId: mockLocation.id,
-      newReviewsFound: 1,
-      processedResult: result,
-      timestamp: new Date().toISOString(),
-    });
-  }
-
+router.post('/google/sync-reviews', async (_req: Request, res: Response) => {
   return sendSuccess(res, {
     syncedLocationId: mockLocation.id,
     newReviewsFound: 0,
@@ -285,131 +332,93 @@ router.post('/google/sync-reviews', async (req: Request, res: Response) => {
 });
 
 // ==========================================
-// REVIEWS & REPLIES ROUTES (WORKFLOW INTEGRATED)
+// REVIEWS & REPLIES ROUTES
 // ==========================================
 router.get('/reviews', (_req: Request, res: Response) => {
-  const fullReviews = workflowService.listReviews(mockSaaSCustomerId);
+  const fullReviews = mockReviews.map((rev) => ({
+    ...rev,
+    reply: rev.replyId ? mockReplies[rev.replyId] : undefined,
+  }));
   return sendSuccess(res, fullReviews);
 });
 
 router.get('/reviews/:id', (req: Request, res: Response) => {
-  const review = workflowService.getReview(req.params.id);
+  const review = mockReviews.find((r) => r.id === req.params.id);
   if (!review) {
     return sendError(res, 404, 'NOT_FOUND', 'Review not found');
   }
-  return sendSuccess(res, review);
+  const reply = review.replyId ? mockReplies[review.replyId] : undefined;
+  return sendSuccess(res, { ...review, reply });
 });
 
 router.post('/reviews/:id/approve', async (req: Request, res: Response) => {
-  try {
-    const { editedReplyText } = req.body || {};
-    const result = await workflowService.approveReviewReply({
-      reviewId: req.params.id,
-      editedReplyText,
-      userId: 'usr_demo_01',
-    });
-
-    return sendSuccess(res, { review: result.review, reply: result.reply });
-  } catch (err: any) {
-    return sendError(res, 400, 'OPERATION_FAILED', err.message);
+  const review = mockReviews.find((r) => r.id === req.params.id);
+  if (!review) {
+    return sendError(res, 404, 'NOT_FOUND', 'Review not found');
   }
-});
 
-router.post('/reviews/:id/reject', async (req: Request, res: Response) => {
-  try {
-    const { reason } = req.body || {};
-    const result = await workflowService.rejectReviewReply({
-      reviewId: req.params.id,
-      reason,
-      userId: 'usr_demo_01',
-    });
-
-    return sendSuccess(res, { review: result.review, reply: result.reply });
-  } catch (err: any) {
-    return sendError(res, 400, 'OPERATION_FAILED', err.message);
+  const reply = review.replyId ? mockReplies[review.replyId] : undefined;
+  if (!reply) {
+    return sendError(res, 404, 'NOT_FOUND', 'Reply draft not found for review');
   }
+
+  const { editedReplyText } = req.body || {};
+  const textToPublish = editedReplyText || reply.proposedText;
+
+  // Publish via Google adapter
+  await googleService.publishReviewReply('mock_access_token', review.googleReviewName, textToPublish);
+
+  reply.status = 'MANUALLY_PUBLISHED';
+  reply.publishedText = textToPublish;
+  reply.publishedAt = new Date().toISOString();
+  reply.reviewedAt = new Date().toISOString();
+
+  return sendSuccess(res, { review, reply });
 });
 
 router.post('/reviews/:id/regenerate', async (req: Request, res: Response) => {
-  try {
-    const result = await workflowService.regenerateReplyDraft({
-      reviewId: req.params.id,
-      brandVoice: mockBrandVoice,
-      userId: 'usr_demo_01',
-    });
-
-    return sendSuccess(res, { review: result.review, reply: result.reply });
-  } catch (err: any) {
-    return sendError(res, 400, 'OPERATION_FAILED', err.message);
-  }
-});
-
-// ==========================================
-// AUTOMATION & WORKFLOW CONTROLS (PAUSE, RESUME, MODE, AUDIT)
-// ==========================================
-router.post('/automation/pause', async (req: Request, res: Response) => {
-  const locationId = (req.body?.locationId as string) || mockLocation.id;
-  const reason = (req.body?.reason as string) || 'Manual customer pause';
-  const config = await workflowService.pauseAutomation({
-    saasCustomerId: mockSaaSCustomerId,
-    locationId,
-    reason,
-    userId: 'usr_demo_01',
-  });
-  return sendSuccess(res, config);
-});
-
-router.post('/automation/resume', async (req: Request, res: Response) => {
-  const locationId = (req.body?.locationId as string) || mockLocation.id;
-  const config = await workflowService.resumeAutomation({
-    saasCustomerId: mockSaaSCustomerId,
-    locationId,
-    userId: 'usr_demo_01',
-  });
-  return sendSuccess(res, config);
-});
-
-router.get('/automation/status', (req: Request, res: Response) => {
-  const locationId = (req.query?.locationId as string) || mockLocation.id;
-  const config = workflowService.getAutomationConfig(mockSaaSCustomerId, locationId);
-  const usage = workflowService.getUsageGuard().getUsageStatus(mockSaaSCustomerId);
-  return sendSuccess(res, { config, usage });
-});
-
-router.post('/automation/mode', async (req: Request, res: Response) => {
-  const locationId = (req.body?.locationId as string) || mockLocation.id;
-  const mode = req.body?.mode as AutomationMode;
-  if (!mode || !['SAFE', 'BALANCED', 'FULL'].includes(mode)) {
-    return sendError(res, 400, 'INVALID_INPUT', 'Mode must be SAFE, BALANCED, or FULL');
+  const review = mockReviews.find((r) => r.id === req.params.id);
+  if (!review) {
+    return sendError(res, 404, 'NOT_FOUND', 'Review not found');
   }
 
-  const config = await workflowService.setAutomationMode({
-    saasCustomerId: mockSaaSCustomerId,
-    locationId,
-    mode,
-    userId: 'usr_demo_01',
+  const riskAssessment =
+    review.riskAssessment ||
+    (await aiEngine.assessRisk(review.comment || '', review.starRating));
+  review.riskAssessment = riskAssessment;
+
+  const { proposedText, model } = await aiEngine.generateReplyDraft({
+    reviewText: review.comment || '',
+    authorName: review.author.displayName,
+    rating: review.starRating,
+    brandVoice: mockBrandVoice,
+    riskAssessment,
   });
-  return sendSuccess(res, config);
-});
 
-router.get('/automation/audit', async (req: Request, res: Response) => {
-  const events = await workflowService.getAuditService().getEventsForCustomer(mockSaaSCustomerId);
-  return sendSuccess(res, events);
-});
+  let reply = review.replyId ? mockReplies[review.replyId] : undefined;
+  if (!reply) {
+    reply = {
+      id: `reply_${Date.now()}`,
+      reviewId: review.id,
+      saasCustomerId: mockSaaSCustomerId,
+      businessLocationId: mockLocation.id,
+      proposedText,
+      status: 'PENDING_APPROVAL',
+      generatedByAi: true,
+      aiModel: model,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    review.replyId = reply.id;
+    mockReplies[reply.id] = reply;
+  } else {
+    reply.proposedText = proposedText;
+    reply.aiModel = model;
+    reply.status = 'PENDING_APPROVAL';
+    reply.updatedAt = new Date().toISOString();
+  }
 
-// ==========================================
-// NOTIFICATIONS ROUTES
-// ==========================================
-router.get('/notifications', async (_req: Request, res: Response) => {
-  const notifications = await workflowService
-    .getNotificationService()
-    .listNotifications(mockSaaSCustomerId);
-  return sendSuccess(res, notifications);
-});
-
-router.post('/notifications/:id/read', async (req: Request, res: Response) => {
-  await workflowService.getNotificationService().markAsRead(req.params.id);
-  return sendSuccess(res, { status: 'marked_as_read', id: req.params.id });
+  return sendSuccess(res, { review, reply });
 });
 
 // ==========================================
@@ -443,9 +452,137 @@ router.put('/settings/brand-voice', (req: Request, res: Response) => {
 // ==========================================
 // BILLING ROUTES
 // ==========================================
-router.get('/billing/subscription', async (_req: Request, res: Response) => {
-  const sub = await billingService.getSubscription(mockSaaSCustomerId);
+router.get('/billing/subscription', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const customerId = req.saasCustomerId || mockSaaSCustomerId;
+  const sub = await billingService.getSubscription(customerId);
   return sendSuccess(res, sub);
+});
+
+router.get('/billing/plans', (_req: Request, res: Response) => {
+  return sendSuccess(res, PLAN_CATALOG);
+});
+
+router.post(
+  '/api/billing/checkout',
+  authenticateUser,
+  requireRole(['CUSTOMER_OWNER', 'OWNER']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { plan = 'PRO', returnUrl, idempotencyKey } = req.body || {};
+      const redirect = returnUrl || `${req.headers.origin || 'http://localhost:3000'}/billing`;
+      const key = idempotencyKey || (req.headers['idempotency-key'] as string);
+      const session = await billingService.createCheckoutSession(
+        req.saasCustomerId!,
+        plan,
+        redirect,
+        key
+      );
+      return sendSuccess(res, session);
+    } catch (err: any) {
+      return sendError(res, 400, 'PROVIDER_ERROR', err.message || 'Checkout creation failed');
+    }
+  }
+);
+
+// Also alias without /api prefix since router is mounted at /api
+router.post(
+  '/billing/checkout',
+  authenticateUser,
+  requireRole(['CUSTOMER_OWNER', 'OWNER']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { plan = 'PRO', returnUrl, idempotencyKey } = req.body || {};
+      const redirect = returnUrl || `${req.headers.origin || 'http://localhost:3000'}/billing`;
+      const key = idempotencyKey || (req.headers['idempotency-key'] as string);
+      const session = await billingService.createCheckoutSession(
+        req.saasCustomerId!,
+        plan,
+        redirect,
+        key
+      );
+      return sendSuccess(res, session);
+    } catch (err: any) {
+      return sendError(res, 400, 'PROVIDER_ERROR', err.message || 'Checkout creation failed');
+    }
+  }
+);
+
+router.post(
+  '/billing/portal',
+  authenticateUser,
+  requireRole(['CUSTOMER_OWNER', 'OWNER']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { returnUrl } = req.body || {};
+      const redirect = returnUrl || `${req.headers.origin || 'http://localhost:3000'}/billing`;
+      const portal = await billingService.createPortalSession(req.saasCustomerId!, redirect);
+      return sendSuccess(res, portal);
+    } catch (err: any) {
+      return sendError(res, 400, 'PROVIDER_ERROR', err.message || 'Portal session creation failed');
+    }
+  }
+);
+
+router.post(
+  '/billing/cancel',
+  authenticateUser,
+  requireRole(['CUSTOMER_OWNER', 'OWNER']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { cancelAtPeriodEnd = true } = req.body || {};
+      const result = await billingService.cancelSubscription(req.saasCustomerId!, cancelAtPeriodEnd);
+      return sendSuccess(res, result);
+    } catch (err: any) {
+      return sendError(res, 400, 'PROVIDER_ERROR', err.message || 'Subscription cancellation failed');
+    }
+  }
+);
+
+router.post(
+  '/billing/resume',
+  authenticateUser,
+  requireRole(['CUSTOMER_OWNER', 'OWNER']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const sub = await billingService.resumeSubscription(req.saasCustomerId!);
+      return sendSuccess(res, sub);
+    } catch (err: any) {
+      return sendError(res, 400, 'PROVIDER_ERROR', err.message || 'Failed to resume subscription');
+    }
+  }
+);
+
+router.get('/billing/invoices', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const customerId = req.saasCustomerId || mockSaaSCustomerId;
+  const invoices = await billingService.listInvoices(customerId);
+  return sendSuccess(res, invoices);
+});
+
+router.get('/billing/usage', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const customerId = req.saasCustomerId || mockSaaSCustomerId;
+  const sub = await billingService.getSubscription(customerId);
+  return sendSuccess(res, sub.usage);
+});
+
+router.post('/billing/webhook', async (req: Request, res: Response) => {
+  try {
+    const rawPayload = (req as any).rawBody || JSON.stringify(req.body);
+    const signature =
+      (req.headers['stripe-signature'] as string) ||
+      (req.headers['x-webhook-signature'] as string) ||
+      '';
+    const idempotencyKey =
+      (req.headers['idempotency-key'] as string) ||
+      (req.headers['x-idempotency-key'] as string);
+
+    const result = await billingService.handleWebhook(rawPayload, signature, idempotencyKey);
+    if (!result.processed) {
+      return sendError(res, 400, 'VALIDATION_ERROR', result.error || 'Webhook verification failed');
+    }
+    return res.status(200).json({ received: true, ...result });
+  } catch (err: any) {
+    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', err.message || 'Webhook processing failed');
+  }
 });
 
 // ==========================================
@@ -465,7 +602,10 @@ router.post('/support/tickets', async (req: Request, res: Response) => {
 // ==========================================
 // ADMIN ROUTES (SUPER_ADMIN ROLE REQUIRED)
 // ==========================================
-router.get('/admin/metrics', (_req: Request, res: Response) => {
+router.get('/admin/metrics', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+  if (req.user && req.user.role !== 'PLATFORM_ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+    return sendError(res, 403, 'FORBIDDEN', 'Platform admin privileges required');
+  }
   return sendSuccess(res, {
     totalSaaSCustomers: 148,
     activeSubscribers: 142,
@@ -476,5 +616,15 @@ router.get('/admin/metrics', (_req: Request, res: Response) => {
     criticalRisksDetected: 12,
   });
 });
+
+router.get(
+  '/admin/tenants',
+  authenticateUser,
+  requireRole(['PLATFORM_ADMIN', 'SUPER_ADMIN']),
+  (_req: AuthenticatedRequest, res: Response) => {
+    const tenants = authService.listTenants();
+    return sendSuccess(res, tenants);
+  }
+);
 
 export default router;

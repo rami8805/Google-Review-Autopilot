@@ -33,3 +33,32 @@ export interface ReviewFilterQuery {
   page?: number;
   pageSize?: number;
 }
+
+export interface SignupPayload {
+  email: string;
+  password: string;
+  name: string;
+  businessName: string;
+}
+
+export interface LoginPayload {
+  email: string;
+  password: string;
+}
+
+export interface InviteMemberPayload {
+  email: string;
+  name: string;
+  role?: 'CUSTOMER_MEMBER' | 'MEMBER';
+}
+
+export interface CreateCheckoutSessionPayload {
+  plan: 'PRO' | 'STARTER' | 'GROWTH' | 'ENTERPRISE';
+  returnUrl?: string;
+  idempotencyKey?: string;
+}
+
+export interface CancelSubscriptionPayload {
+  cancelAtPeriodEnd?: boolean;
+  reason?: string;
+}
