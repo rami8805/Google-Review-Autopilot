@@ -10,7 +10,7 @@ const auditRepo = new AuditRepository();
 
 export const PADDLE_PLAN_PRICE_MAP: Record<string, string> = {
   STARTER: process.env.PADDLE_PRICE_STARTER_MONTHLY || 'pri_sandbox_starter_01',
-  GROWTH: process.env.PADDLE_PRICE_PRO_MONTHLY || 'pri_sandbox_growth_01',
+  GROWTH: process.env.PADDLE_PRICE_GROWTH_MONTHLY || 'pri_sandbox_growth_01',
   PRO: process.env.PADDLE_PRICE_PRO_MONTHLY || 'pri_sandbox_pro_01',
   BUSINESS: process.env.PADDLE_PRICE_BUSINESS_MONTHLY || 'pri_sandbox_business_01',
 };
@@ -28,7 +28,7 @@ router.get('/pricing', async (_req, res) => {
         GROWTH: { priceId: PADDLE_PLAN_PRICE_MAP.GROWTH, locations: 3, replyLimit: 200 },
         PRO: { priceId: PADDLE_PLAN_PRICE_MAP.PRO, locations: 10, replyLimit: 'UNLIMITED' },
       },
-      clientToken: process.env.VITE_PADDLE_CLIENT_TOKEN || 'test_sandbox_token',
+      clientToken: process.env.VITE_PADDLE_CLIENT_TOKEN || null,
       environment: process.env.PADDLE_ENV || 'sandbox',
     },
   });
@@ -37,19 +37,14 @@ router.get('/pricing', async (_req, res) => {
 // GET /api/billing/subscription
 router.get('/subscription', async (req: AuthenticatedRequest, res) => {
   const tenantId = req.auth!.tenantId;
-  const subscription = (await billingRepo.getSubscription(tenantId)) || {
-    id: `sub_${tenantId}`,
-    saasCustomerId: tenantId,
-    plan: 'STARTER' as const,
-    status: 'TRIALING' as const,
-    currentPeriodStart: new Date().toISOString(),
-    currentPeriodEnd: new Date(Date.now() + 14 * 86400000).toISOString(),
-    cancelAtPeriodEnd: false,
-    locationLimit: 1,
-    monthlyReplyLimit: 50,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+  const subscription = await billingRepo.getSubscription(tenantId);
+  if (!subscription) {
+    res.status(404).json({
+      success: false,
+      error: { code: 'SUBSCRIPTION_NOT_FOUND', message: 'No verified subscription exists for this tenant.' },
+    });
+    return;
+  }
 
   res.json({ success: true, data: subscription });
 });
