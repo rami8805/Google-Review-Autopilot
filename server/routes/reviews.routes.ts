@@ -137,32 +137,6 @@ router.post('/:id/approve', async (req: AuthenticatedRequest, res) => {
   });
   return;
 
-  const updatedReply = await replyRepo.update(tenantId, reply.id, {
-    status: 'MANUALLY_PUBLISHED',
-    publishedText: textToPublish,
-    publishedAt: new Date().toISOString(),
-    reviewedByUserId: req.auth!.userId,
-    reviewedAt: new Date().toISOString(),
-  });
-
-  await auditRepo.logEvent({
-    id: `audit_${Date.now()}`,
-    saasCustomerId: tenantId,
-    actorUserId: req.auth!.userId,
-    actorType: 'USER',
-    action: 'MANUALLY_PUBLISHED_REPLY',
-    targetResourceType: 'REPLY',
-    targetResourceId: reply.id,
-    details: {
-      reviewId: review.id,
-      wasEdited: Boolean(editedReplyText),
-    },
-    timestamp: new Date().toISOString(),
-  });
-
-  res.json({ success: true, data: { review, reply: updatedReply } });
-});
-
 // POST /api/reviews/:id/regenerate
 router.post('/:id/regenerate', async (req: AuthenticatedRequest, res) => {
   const tenantId = req.auth!.tenantId;
