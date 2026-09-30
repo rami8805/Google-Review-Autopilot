@@ -8,8 +8,8 @@
 
 **Google Review Autopilot** solves one high-leverage problem for local business owners: responding quickly, professionally, and safely to Google Business Profile reviews.
 
-* **Single-Location-First**: Tailored for fast onboarding and frictionless daily operation for local businesses (dental practices, auto repair shops, restaurants, plumbing services, law offices).
-* **One Core Job**: Connect Google Business Profile, detect new reviews, generate safe AI drafts using Google Gemini, and publish replies automatically according to clear risk rules.
+* **Single-Location-First**: Tailored for fast onboarding and frictionless daily operation for local businesses (dental practices, auto repair shops, restaurants, plumbing services, medical clinics, law offices).
+* **One Core Job**: Connect Google Business Profile, detect new reviews, generate safe AI drafts using Google Gemini (`gemini-3.8-flash`), and publish replies automatically according to clear risk rules.
 * **Strict Anti-Scope (What We Do NOT Build)**:
   * ❌ No CRM for review authors
   * ❌ No SMS marketing
@@ -28,10 +28,12 @@ We maintain a strict conceptual boundary between our customers and reviewers:
 
 * **User**: The login identity (email, password/SSO, user role).
 * **SaaSCustomer**: The paying customer who subscribes to Google Review Autopilot.
-* **Business**: The legal commercial entity owned/managed by the `SaaSCustomer`.
+* **Business**: The commercial entity owned/managed by the `SaaSCustomer`.
 * **BusinessLocation**: A specific Google Business Profile location.
 * **Review**: A Google review submitted on Google Maps / Search for a `BusinessLocation`.
 * **ReviewAuthor**: The public reviewer who wrote the Google review (**NOT our customer**).
+* **SupportTicket**: A customer support inquiry submitted by a `SaaSCustomer`.
+* **Subscription**: The commercial billing entitlement record governing location count and reply limits.
 
 > **Rule**: Never use the bare word "Customer" ambiguously in domain code or documentation.
 
@@ -40,90 +42,143 @@ We maintain a strict conceptual boundary between our customers and reviewers:
 ## 3. Automation & AI Safety Rules
 
 ### Default Automation Baseline
-* **5-Star + LOW Risk** ➔ `AUTO_PUBLISH` (after grace period)
-* **4-Star + LOW Risk** ➔ `AUTO_PUBLISH` (after grace period)
-* **3-Star** ➔ `REQUIRE_APPROVAL`
-* **1–2 Stars** ➔ `REQUIRE_APPROVAL`
+* **5-Star + LOW Risk** ➔ `AUTO_PUBLISH` (after configurable 15-minute grace period)
+* **4-Star + LOW Risk** ➔ `AUTO_PUBLISH` (after configurable 30-minute grace period)
+* **3-Star** ➔ `REQUIRE_APPROVAL` (never auto-published)
+* **1–2 Stars** ➔ `REQUIRE_APPROVAL` (never auto-published)
 * **HIGH or CRITICAL Risk** ➔ `REQUIRE_APPROVAL` (regardless of star rating)
 
 ### Strict AI Generation Boundaries
 The AI engine **must never invent**:
-1. Refunds or financial credits
-2. Discounts, promo codes, or fee cuts
-3. Free compensation or gift items
+1. Refunds, reimbursements, or financial credits
+2. Discounts, coupons, promo codes, or fee cuts
+3. Free compensation, gift items, or vouchers
 4. Employee or staff names not in trusted context
-5. Internal business policies or compliance pledges
-6. Binding promises or future guarantees
+5. Internal business policies, warranty pledges, or compliance declarations
+6. Binding promises, timelines, or future guarantees
 7. Actions or appointments not present in verified context
 
-Review text is treated as **untrusted user-generated content (UGC)**. All prompts are fortified against prompt injection.
+Review text is treated as **untrusted user-generated content (UGC)**. All prompts are fortified against prompt injection with XML boundary delimiters and strict secondary regex root sanitizers.
 
 ---
 
-## 4. Repository Structure
+## 4. Subsystem & Directory Layout
 
 ```
 ├── .env.example              # Environment variables template
-├── metadata.json             # App metadata & capabilities
+├── metadata.json             # App metadata & server capabilities
 ├── README.md                 # Primary system guide
 ├── docs/                     # Architectural specifications
 │   ├── ARCHITECTURE.md       # Full architectural design & data flows
 │   ├── AI-AGENT-CONTRACT.md  # Binding engineering & AI laws
 │   ├── FILE-OWNERSHIP.md     # Directory ownership matrix for agents
 │   ├── INTEGRATION-CONTRACT.md# External provider specifications (Google, Gemini, Stripe)
-│   └── RELEASE-CHECKLIST.md  # Pre-flight release verification
+│   ├── QA-REPORT.md          # Comprehensive QA and security audit
+│   ├── RELEASE-CHECKLIST.md  # Pre-flight release verification
+│   └── RELEASE-AUDIT.md      # Final release integration audit report
 ├── shared/                   # Shared contracts (Frontend, Backend, Jobs)
 │   ├── types/                # Domain models & enveloped API contracts
 │   ├── schemas/              # Payload validation interfaces
 │   └── constants/            # Automation rules, safety prompts, constants
 ├── server/                   # Backend services & Express API
-│   ├── routes/               # API route controllers
+│   ├── routes/               # API route controllers with multi-tenant guards
 │   ├── services/
 │   │   ├── google/           # Google Business Profile adapter
 │   │   ├── ai/               # Gemini AI safety & reply generator
-│   │   ├── billing/          # Stripe subscription management
+│   │   ├── billing/          # Stripe subscription & portal management
 │   │   ├── notifications/    # Alerting & email dispatch
-│   │   └── support/          # Support ticketing engine
+│   │   └── support/          # Support ticketing engine with staff copilot
 │   └── jobs/                 # Background review sync & grace-period worker
 ├── src/                      # Customer Frontend (Vite + React + Tailwind)
-│   ├── components/           # Shared UI primitives
-│   ├── pages/                # Top-level page routes
+│   ├── components/           # Shared UI primitives (Navbar, Badges)
+│   ├── pages/                # Top-level page routes (Dashboard, Reviews, Settings, Billing, Landing)
 │   └── features/
-│       ├── onboarding/       # Google Connect & setup wizard
-│       ├── dashboard/        # Metrics & health status
-│       ├── reviews/          # Review feed & Approval Queue
+│       ├── onboarding/       # 4-step Google Connect & setup wizard
+│       ├── dashboard/        # Metrics, connection status & health
+│       ├── reviews/          # Review feed, Approval Queue & Ingestion Tester
 │       ├── settings/         # Brand voice & rule customizer
-│       ├── billing/          # Subscription & usage portal
-│       └── support/          # In-app support widget
+│       ├── billing/          # Subscription & sandbox billing lifecycle
+│       └── support/          # In-app support widget & conversation threads
 ├── admin/                    # Role-protected Super Admin Portal
 │   ├── components/           # Admin design system
-│   ├── pages/                # Admin views
-│   └── features/             # Cross-tenant operations & telemetry
+│   ├── pages/                # Admin Dashboard
+│   └── features/             # Cross-tenant operations, Support Desk & Telemetry
 └── tests/                    # Unit, integration & safety test suites
 ```
 
 ---
 
-## 5. Development & Verification
+## 5. Development & Testing
 
-### Setup
+### Installation & Environment Setup
 ```bash
-# Copy environment configuration
+# Install dependencies
+npm install
+
+# Copy environment template
 cp .env.example .env
 
-# Verify linting & type checks
+# Verify TypeScript types
 npm run lint
+
+# Run the full automated test suite (17/17 tests)
+npm test
 
 # Production build
 npm run build
 
-# Start development server
+# Start full-stack dev server (Express on 0.0.0.0:3000 with Vite middlewares)
 npm run dev
 ```
 
 ---
 
-## 6. The Twelve Engineering Laws
+## 6. End-to-End User Journeys
+
+### A. Customer Onboarding & Setup
+1. Open the app or click **Landing / Signup** in the top navigation.
+2. Click **Start 14-Day Free Trial** or **Get Started** to enter business details (e.g. *Bayview Dental*).
+3. Authorize Google Business Profile in Step 1.
+4. Confirm discovered location and verified Google Place ID in Step 2.
+5. Watch Gemini calibrate review risk scoring and draft a safe response in Step 3.
+6. Confirm baseline safety rules in Step 4 and enter the live customer dashboard.
+
+### B. Inbound Google Review Processing (Phase 4 Simulation)
+1. Go to the **Approval Queue** tab.
+2. In the **Live Ingestion Tester** toolbar, click:
+   - `+ 5★ Praise`: Auto-publishes to Google Business Profile after grace period.
+   - `+ 3★ Wait Time`: Held safely in the Approval Queue.
+   - `+ 1★ Prompt Injection`: Detects adversarial prompt injection / legal threat; locks review to manual approval with critical risk badge.
+3. Inspect and edit proposed AI drafts, click **Approve & Publish to Google**, or click **Regenerate**.
+
+### C. Customer Support & Admin Copilot (Phase 7)
+1. In the customer view, navigate to **Support** to view tickets or submit an inquiry with optional attachment.
+2. Click **Super Admin** in the navigation header to switch to the admin view.
+3. Open the **Support Desk** tab to view customer inquiries with rich account context (Google connection state, subscription tier, review stats).
+4. Click **Suggest Reply with AI** to generate a staff-reviewed draft.
+5. Edit draft if desired, click **Send Reply**, or update ticket status to `Resolved`.
+6. Return to customer view to see the response in the ticket thread.
+
+### D. Billing & Entitlements (Phase 8)
+1. Navigate to **Billing** to inspect location and reply quota meters.
+2. Use the **Billing Lifecycle Tester** bar to toggle states (`Active`, `Trialing`, `Past Due`, `Cancel`).
+3. When `Cancel` is triggered, Review Autopilot is paused and review publishing is blocked until reactivated.
+
+---
+
+## 7. External Integrations & Configuration
+
+| Service | Protocol / Adapter | Environment Variable | Fallback Behavior |
+| :--- | :--- | :--- | :--- |
+| **Google Business Profile** | OAuth 2.0 (`business.manage`) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | In-memory Google adapter simulates locations and review publishing |
+| **Google Gemini AI** | `@google/genai` TypeScript SDK | `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.8-flash` | Deterministic template fallback with morphological prompt injection defense |
+| **Stripe Billing** | Customer Portal & Webhooks | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | In-memory subscription manager with simulated tier switching |
+| **Notifications** | Resend / SMTP Adapter | `RESEND_API_KEY`, `NOTIFICATION_FROM_EMAIL` | In-app notification queue and audit events log |
+
+---
+
+## 8. The Twelve Engineering Laws
+
 1. Never write secrets into source code.
 2. Never expose server credentials to the browser.
 3. Never duplicate shared domain models.
@@ -133,6 +188,6 @@ npm run dev
 7. Prefer adapters/interfaces for external providers.
 8. Review text is untrusted user-generated content.
 9. Never allow review text to override system instructions.
-10. Tenant isolation is mandatory.
+10. Tenant isolation is mandatory (`saasCustomerId` filter).
 11. SaaSCustomer A must never access SaaSCustomer B data.
-12. Admin access must be explicitly role-protected.
+12. Admin access must be explicitly role-protected (`SUPER_ADMIN`).

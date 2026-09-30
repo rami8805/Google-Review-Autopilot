@@ -60,11 +60,12 @@ export class ReviewSyncJob {
       const currentRiskSeverity = RISK_LEVEL_SEVERITY[riskAssessment.riskLevel];
       const maxAllowedSeverity = RISK_LEVEL_SEVERITY[matchingRule.maxRiskLevelForAutoPublish];
 
-      // Auto publish is permitted ONLY if risk level does not exceed rule limit AND is not HIGH/CRITICAL
+      // Auto publish is permitted ONLY if risk level does not exceed rule limit AND is not HIGH/CRITICAL and rating is 4 or 5 stars
       if (
         currentRiskSeverity <= maxAllowedSeverity &&
         riskAssessment.riskLevel !== 'HIGH' &&
-        riskAssessment.riskLevel !== 'CRITICAL'
+        riskAssessment.riskLevel !== 'CRITICAL' &&
+        review.starRating >= 4
       ) {
         isEligibleForAutoPublish = true;
       }

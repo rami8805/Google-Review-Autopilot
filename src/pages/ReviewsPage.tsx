@@ -6,12 +6,26 @@ interface ReviewsPageProps {
   reviews: (Review & { reply?: ReviewReply })[];
   onApprove: (reviewId: string, editedText?: string) => Promise<void>;
   onRegenerate: (reviewId: string) => Promise<void>;
+  onSimulateReview?: (preset: 'five_star' | 'four_star' | 'three_star' | 'critical_risk') => Promise<void>;
+  isSimulatingReview?: boolean;
 }
 
-export const ReviewsPage: React.FC<ReviewsPageProps> = ({ reviews, onApprove, onRegenerate }) => {
+export const ReviewsPage: React.FC<ReviewsPageProps> = ({
+  reviews,
+  onApprove,
+  onRegenerate,
+  onSimulateReview,
+  isSimulatingReview,
+}) => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <ApprovalQueue reviews={reviews} onApprove={onApprove} onRegenerate={onRegenerate} />
+      <ApprovalQueue
+        reviews={reviews}
+        onApprove={onApprove}
+        onRegenerate={onRegenerate}
+        onSimulateReview={onSimulateReview}
+        isSimulatingReview={isSimulatingReview}
+      />
     </div>
   );
 };

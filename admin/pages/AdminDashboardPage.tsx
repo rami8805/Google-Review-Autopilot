@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { AdminHeader } from '../components/AdminHeader';
 import { TenantOverview } from '../features/TenantOverview';
+import { AdminSupportDesk } from '../features/AdminSupportDesk';
 import { Activity, ShieldAlert, Cpu, CheckCircle } from 'lucide-react';
 
 export const AdminDashboardPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('tenants');
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
       <AdminHeader activeTab={activeTab} onSelectTab={setActiveTab} />
 
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
@@ -51,6 +52,8 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
 
         {activeTab === 'tenants' && <TenantOverview />}
+
+        {activeTab === 'support' && <AdminSupportDesk />}
 
         {activeTab === 'system' && (
           <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 space-y-3">

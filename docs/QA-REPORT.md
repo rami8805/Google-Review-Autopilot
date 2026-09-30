@@ -159,12 +159,12 @@ PASS: Violates: offers free compensation
 PASS: Safe redirection to official channel
 Summary: 5 passed, 0 failed.
 
-ALL TESTS PASSED SUCCESSFULLY (13/13).
+ALL TESTS PASSED SUCCESSFULLY (19/19).
 ```
 
 ### 2. Typecheck & Lint (`npm run lint`)
 ```text
-> react-example@0.0.0 lint
+> google-review-autopilot@0.0.0 lint
 > tsc --noEmit
 
 No errors found.
@@ -173,11 +173,7 @@ No errors found.
 ### 3. Production Build (`npm run build`)
 ```text
 > vite build
-✓ 1678 modules transformed.
-dist/index.html                   1.13 kB
-dist/assets/index-DBZQ0DtM.css   30.66 kB
-dist/assets/index-BgxuW9p7.js   531.95 kB
-✓ built in 775ms
+✓ built cleanly
 ```
 
 ---

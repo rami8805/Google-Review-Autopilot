@@ -2,15 +2,33 @@ import React, { useState } from 'react';
 import type { Review, ReviewReply } from '../../../shared/types/domain';
 import { RiskBadge } from '../../components/RiskBadge';
 import { StatusBadge } from '../../components/StatusBadge';
-import { Star, Sparkles, Send, Edit3, RotateCw, AlertTriangle, Check } from 'lucide-react';
+import {
+  Star,
+  Sparkles,
+  Send,
+  Edit3,
+  RotateCw,
+  AlertTriangle,
+  Check,
+  Zap,
+  ShieldAlert,
+} from 'lucide-react';
 
 interface ApprovalQueueProps {
   reviews: (Review & { reply?: ReviewReply })[];
   onApprove: (reviewId: string, editedText?: string) => Promise<void>;
   onRegenerate: (reviewId: string) => Promise<void>;
+  onSimulateReview?: (preset: 'five_star' | 'four_star' | 'three_star' | 'critical_risk') => Promise<void>;
+  isSimulatingReview?: boolean;
 }
 
-export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ reviews, onApprove, onRegenerate }) => {
+export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({
+  reviews,
+  onApprove,
+  onRegenerate,
+  onSimulateReview,
+  isSimulatingReview,
+}) => {
   const [filter, setFilter] = useState<'ALL' | 'PENDING' | 'PUBLISHED'>('PENDING');
   const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
   const [editedTextMap, setEditedTextMap] = useState<Record<string, string>>({});
@@ -51,7 +69,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ reviews, onApprove
   return (
     <div className="space-y-6">
       {/* Top Filter and count banner */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-lg font-bold text-slate-900">Google Review Inbox & Approvals</h2>
           <p className="text-xs text-slate-500">
@@ -59,7 +77,7 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ reviews, onApprove
           </p>
         </div>
 
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold self-start sm:self-auto">
           <button
             onClick={() => setFilter('PENDING')}
             className={`px-3 py-1.5 rounded-lg transition ${
@@ -86,6 +104,44 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ reviews, onApprove
           </button>
         </div>
       </div>
+
+      {/* Simulator Quick Action Toolbar */}
+      {onSimulateReview && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs">
+            <Zap className="w-4 h-4 text-blue-600 shrink-0" />
+            <div>
+              <span className="font-bold text-slate-900">Live Ingestion Tester: </span>
+              <span className="text-slate-500">Simulate incoming review to verify the end-to-end Google review lifecycle.</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => onSimulateReview('five_star')}
+              disabled={isSimulatingReview}
+              className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition disabled:opacity-50"
+            >
+              + 5★ Praise (Auto-Publishes)
+            </button>
+            <button
+              onClick={() => onSimulateReview('three_star')}
+              disabled={isSimulatingReview}
+              className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 transition disabled:opacity-50"
+            >
+              + 3★ Wait Time (Needs Approval)
+            </button>
+            <button
+              onClick={() => onSimulateReview('critical_risk')}
+              disabled={isSimulatingReview}
+              className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition disabled:opacity-50 flex items-center gap-1"
+            >
+              <ShieldAlert className="w-3 h-3 text-rose-600" />
+              <span>+ 1★ Prompt Injection (Locked)</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Review List */}
       <div className="space-y-4">
@@ -165,7 +221,9 @@ export const ApprovalQueue: React.FC<ApprovalQueueProps> = ({ reviews, onApprove
                         <Sparkles className="w-4 h-4 text-blue-600" />
                         <span>
                           {reply.status === 'AUTO_PUBLISHED'
-                            ? 'Auto-Published Response'
+                            ? 'Auto-Published Response (Google Business Profile)'
+                            : reply.status === 'MANUALLY_PUBLISHED'
+                            ? 'Manually Published Response (Google Business Profile)'
                             : 'AI Proposed Reply (Ready for Review)'}
                         </span>
                         {reply.aiModel && (

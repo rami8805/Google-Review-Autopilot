@@ -4,6 +4,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { ReviewsPage } from './pages/ReviewsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { BillingPage } from './pages/BillingPage';
+import { LandingPage } from './pages/LandingPage';
 import { SupportWidget } from './features/support/SupportWidget';
 import { OnboardingWizard } from './features/onboarding/OnboardingWizard';
 import { AdminDashboardPage } from '../admin/pages/AdminDashboardPage';
@@ -14,12 +15,15 @@ import type {
   AutomationRule,
   BrandVoice,
   Subscription,
+  SubscriptionPlan,
+  SubscriptionStatus,
 } from '../shared/types/domain';
 import { DEFAULT_AUTOMATION_RULES } from '../shared/constants/automation';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'dashboard' | 'reviews' | 'settings' | 'billing' | 'support'>('dashboard');
   const [isAdminView, setIsAdminView] = useState(false);
+  const [isLandingView, setIsLandingView] = useState(false);
   const [isOnboarding, setIsOnboarding] = useState(false);
 
   // Core state
@@ -78,7 +82,7 @@ export default function App() {
         publishedText: 'Hi Emily, thank you so much for the 5-star review! Dr. Sarah and the whole team are thrilled to hear your cleaning went so smoothly. See you at your next visit!',
         status: 'AUTO_PUBLISHED',
         generatedByAi: true,
-        aiModel: 'gemini-2.5-flash',
+        aiModel: 'gemini-3.8-flash',
         publishedAt: new Date(Date.now() - 3600000 * 3.5).toISOString(),
         createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
         updatedAt: new Date(Date.now() - 3600000 * 3.5).toISOString(),
@@ -115,7 +119,7 @@ export default function App() {
         proposedText: 'Hello Michael, thank you for your candid feedback. While we are glad the dental care was solid, we apologize for the wait you experienced. We strive to stay on schedule and are reviewing our morning booking flow. Please contact care@downtowndental-sf.com if we can assist further.',
         status: 'PENDING_APPROVAL',
         generatedByAi: true,
-        aiModel: 'gemini-2.5-flash',
+        aiModel: 'gemini-3.8-flash',
         createdAt: new Date(Date.now() - 3600000 * 18).toISOString(),
         updatedAt: new Date(Date.now() - 3600000 * 18).toISOString(),
       },
@@ -151,7 +155,7 @@ export default function App() {
         proposedText: 'Hello, thank you for sharing your feedback. We take all patient concerns very seriously. As patient privacy regulations prohibit discussing specific records publicly, please contact our Practice Director directly at care@downtowndental-sf.com or +1-415-555-0199 so we can privately investigate your experience.',
         status: 'PENDING_APPROVAL',
         generatedByAi: true,
-        aiModel: 'gemini-2.5-flash',
+        aiModel: 'gemini-3.8-flash',
         createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
         updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
       },
@@ -182,7 +186,7 @@ export default function App() {
     updatedAt: new Date().toISOString(),
   });
 
-  const [subscription] = useState<Subscription>({
+  const [subscription, setSubscription] = useState<Subscription>({
     id: 'sub_demo_01',
     saasCustomerId: 'saas_cust_demo_01',
     plan: 'STARTER',
@@ -198,32 +202,36 @@ export default function App() {
 
   const [feedbackToast, setFeedbackToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
+  const [isSimulatingReview, setIsSimulatingReview] = useState(false);
 
   const showFeedback = (message: string, type: 'success' | 'error' = 'success') => {
     setFeedbackToast({ message, type });
-    setTimeout(() => setFeedbackToast(null), 3500);
+    setTimeout(() => setFeedbackToast(null), 4000);
   };
 
   // Fetch live API data on mount if backend is running
-  useEffect(() => {
+  const loadReviewsFromApi = async () => {
     setIsLoadingReviews(true);
-    fetch('/api/reviews')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
+    try {
+      const res = await fetch('/api/reviews');
+      if (res.ok) {
+        const data = await res.json();
         if (data?.success && Array.isArray(data.data)) {
           setReviews(data.data);
         }
-      })
-      .catch(() => {
-        // Fallback to initial bootstrap mock
-      })
-      .finally(() => {
-        setIsLoadingReviews(false);
-      });
+      }
+    } catch {
+      // Fallback to initial bootstrap mock
+    } finally {
+      setIsLoadingReviews(false);
+    }
+  };
+
+  useEffect(() => {
+    loadReviewsFromApi();
   }, []);
 
   const handleApprove = async (reviewId: string, editedText?: string) => {
-    // Try sending to API
     try {
       const res = await fetch(`/api/reviews/${reviewId}/approve`, {
         method: 'POST',
@@ -233,7 +241,7 @@ export default function App() {
       if (res.ok) {
         showFeedback('Reply published directly to Google Business Profile!', 'success');
       } else {
-        showFeedback('Updated locally, API sync staged.', 'success');
+        showFeedback('Reply updated and staged for dispatch.', 'success');
       }
     } catch {
       showFeedback('Saved locally (network offline).', 'success');
@@ -267,6 +275,7 @@ export default function App() {
           setReviews((prev) =>
             prev.map((r) => (r.id === reviewId ? { ...r, reply: payload.data.reply } : r))
           );
+          showFeedback('Draft regenerated safely with Gemini!', 'success');
           return;
         }
       }
@@ -283,7 +292,7 @@ export default function App() {
             reply: {
               ...r.reply,
               proposedText: `Hello ${r.author.displayName || 'valued customer'}, thank you for sharing your feedback with our practice. We appreciate your perspective and invite you to contact us directly at ${brandVoice.trustedBusinessContext.contactEmailForInquiries || 'care@downtowndental-sf.com'} so we can assist.`,
-              aiModel: 'gemini-2.5-flash',
+              aiModel: 'gemini-3.8-flash',
               status: 'PENDING_APPROVAL',
             },
           };
@@ -291,44 +300,168 @@ export default function App() {
         return r;
       })
     );
+    showFeedback('Draft regenerated.', 'success');
   };
 
   const handleSaveRules = async (updatedRules: AutomationRule[]) => {
     setRules(updatedRules);
     try {
-      await fetch('/api/settings/automation-rules', {
+      const res = await fetch('/api/settings/automation-rules', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rules: updatedRules }),
       });
+      if (res.ok) {
+        showFeedback('Automation rules updated and active!', 'success');
+      }
     } catch {
-      // Offline fallback
+      showFeedback('Rules saved locally.', 'success');
     }
   };
 
   const handleSaveBrandVoice = async (updatedBrandVoice: BrandVoice) => {
     setBrandVoice(updatedBrandVoice);
     try {
-      await fetch('/api/settings/brand-voice', {
+      const res = await fetch('/api/settings/brand-voice', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedBrandVoice),
       });
+      if (res.ok) {
+        showFeedback('Brand Voice & Trusted Context saved!', 'success');
+      }
     } catch {
-      // Offline fallback
+      showFeedback('Brand voice saved locally.', 'success');
+    }
+  };
+
+  const handleUpdateSubscription = async (plan?: SubscriptionPlan, status?: SubscriptionStatus) => {
+    const updatedPlan = plan || subscription.plan;
+    const updatedStatus = status || subscription.status;
+
+    try {
+      const res = await fetch('/api/billing/update-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: updatedPlan, status: updatedStatus }),
+      });
+      if (res.ok) {
+        const payload = await res.json();
+        if (payload?.data) {
+          setSubscription(payload.data);
+          return;
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    setSubscription((prev) => ({
+      ...prev,
+      plan: updatedPlan,
+      status: updatedStatus,
+      locationLimit: updatedPlan === 'STARTER' ? 1 : updatedPlan === 'GROWTH' ? 3 : 10,
+      monthlyReplyLimit: updatedPlan === 'STARTER' ? 50 : updatedPlan === 'GROWTH' ? 200 : 1000,
+    }));
+  };
+
+  // Phase 4 Ingestion Simulation Handler
+  const handleSimulateInboundReview = async (
+    preset: 'five_star' | 'four_star' | 'three_star' | 'critical_risk'
+  ) => {
+    setIsSimulatingReview(true);
+    try {
+      const res = await fetch('/api/google/sync-reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preset }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.error?.message || 'Unable to sync review. Check connection.');
+      }
+
+      const payload = await res.json();
+      if (payload?.success && payload.data?.ingestedReview) {
+        const newRev = payload.data.ingestedReview;
+        setReviews((prev) => [newRev, ...prev]);
+
+        if (payload.data.result?.actionTaken === 'AUTO_PUBLISHED') {
+          showFeedback(
+            `Inbound 5★ Review: Gemini drafted safe reply & published automatically to Google!`,
+            'success'
+          );
+        } else if (payload.data.result?.riskLevel === 'CRITICAL') {
+          showFeedback(
+            `Inbound 1★ Review: Prompt injection / legal threat flagged! Locked to Approval Queue.`,
+            'error'
+          );
+        } else {
+          showFeedback(
+            `Inbound Review: Held in Approval Queue according to your safety rules.`,
+            'success'
+          );
+        }
+      }
+    } catch (err) {
+      showFeedback((err as Error).message, 'error');
+    } finally {
+      setIsSimulatingReview(false);
+    }
+  };
+
+  const handleSyncReviews = async () => {
+    setIsLoadingReviews(true);
+    try {
+      const res = await fetch('/api/google/sync-reviews', { method: 'POST' });
+      if (res.ok) {
+        const payload = await res.json();
+        if (payload?.success && payload.data?.ingestedReview) {
+          setReviews((prev) => [payload.data.ingestedReview, ...prev]);
+          showFeedback('Synced 1 new review from Google Business Profile!', 'success');
+        } else {
+          showFeedback('Google Business Profile is up to date!', 'success');
+        }
+      }
+    } catch {
+      showFeedback('Synced reviews locally.', 'success');
+    } finally {
+      setIsLoadingReviews(false);
     }
   };
 
   const pendingApprovalsCount = reviews.filter((r) => r.reply?.status === 'PENDING_APPROVAL').length;
 
+  // View: Landing Page
+  if (isLandingView) {
+    return (
+      <LandingPage
+        onStartOnboarding={() => {
+          setIsLandingView(false);
+          setIsOnboarding(true);
+        }}
+        onEnterDemo={() => {
+          setIsLandingView(false);
+          setIsOnboarding(false);
+        }}
+        onOpenAdmin={() => {
+          setIsLandingView(false);
+          setIsAdminView(true);
+        }}
+      />
+    );
+  }
+
+  // View: Super Admin View
   if (isAdminView) {
     return (
       <div>
-        <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex justify-between items-center text-xs text-slate-300">
-          <span>Switched to Super Admin Context (Role: SUPER_ADMIN)</span>
+        <div className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex justify-between items-center text-xs text-slate-300">
+          <span className="font-mono">Super Admin Console &bull; Role: SUPER_ADMIN</span>
           <button
             onClick={() => setIsAdminView(false)}
-            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white font-medium"
+            className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium transition"
           >
             &larr; Return to SaaSCustomer Dashboard
           </button>
@@ -338,6 +471,7 @@ export default function App() {
     );
   }
 
+  // View: SaaSCustomer App
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       <Navbar
@@ -345,7 +479,9 @@ export default function App() {
         onTabChange={(t) => setCurrentTab(t as any)}
         pendingCount={pendingApprovalsCount}
         locationName={location.locationName}
+        isConnected={location.isConnected}
         onOpenAdmin={() => setIsAdminView(true)}
+        onOpenLanding={() => setIsLandingView(true)}
         isAdminView={isAdminView}
       />
 
@@ -374,14 +510,20 @@ export default function App() {
             onComplete={() => {
               setIsOnboarding(false);
               setLocation({ ...location, isConnected: true, automationEnabled: true });
+              showFeedback('Google Business Profile connected and Autopilot activated!', 'success');
             }}
+            onCancel={() => setIsOnboarding(false)}
           />
         ) : (
           <>
             {currentTab === 'dashboard' && (
               <DashboardPage
                 reviews={reviews}
+                location={location}
+                subscription={subscription}
                 onOpenApprovalQueue={() => setCurrentTab('reviews')}
+                onSyncReviews={handleSyncReviews}
+                isSyncing={isLoadingReviews}
               />
             )}
 
@@ -390,6 +532,8 @@ export default function App() {
                 reviews={reviews}
                 onApprove={handleApprove}
                 onRegenerate={handleRegenerate}
+                onSimulateReview={handleSimulateInboundReview}
+                isSimulatingReview={isSimulatingReview}
               />
             )}
 
@@ -402,7 +546,12 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'billing' && <BillingPage subscription={subscription} />}
+            {currentTab === 'billing' && (
+              <BillingPage
+                subscription={subscription}
+                onUpdateSubscription={handleUpdateSubscription}
+              />
+            )}
 
             {currentTab === 'support' && (
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

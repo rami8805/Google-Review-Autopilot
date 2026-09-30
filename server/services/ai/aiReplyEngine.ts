@@ -24,7 +24,7 @@ export class GeminiAiReplyEngine implements IAiReplyEngine {
   private aiClient: GoogleGenAI | null = null;
   private modelName: string;
 
-  constructor(apiKey?: string, modelName = 'gemini-2.5-flash') {
+  constructor(apiKey?: string, modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash') {
     const key = apiKey || process.env.GEMINI_API_KEY;
     if (key && key !== 'MY_GEMINI_API_KEY') {
       this.aiClient = new GoogleGenAI({ apiKey: key });
@@ -122,7 +122,7 @@ CONSTRAINTS:
 
     if (this.aiClient) {
       try {
-        const response = await this.aiClient.models.generateContent({
+        const generatePromise = this.aiClient.models.generateContent({
           model: this.modelName,
           contents: [
             {
@@ -136,7 +136,14 @@ CONSTRAINTS:
           ],
         });
 
-        let draft = (response.text || '').trim();
+        const timeoutMs = process.env.NODE_ENV === 'test' ? 500 : 3500;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Gemini API request timed out')), timeoutMs);
+        });
+
+        const response: any = await Promise.race([generatePromise, timeoutPromise]);
+
+        let draft = (response?.text || '').trim();
         if (!draft) {
           return {
             proposedText: this.buildSafeFallback(authorName, rating, contactInfo, riskAssessment),
@@ -149,7 +156,7 @@ CONSTRAINTS:
           model: this.modelName,
         };
       } catch (err) {
-        console.error('Gemini API call failed, falling back to deterministic safe template:', err);
+        console.warn('Gemini API unavailable or timed out, applying safe deterministic template:', (err as Error).message);
       }
     }
 

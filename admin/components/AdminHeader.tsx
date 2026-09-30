@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Database, Users, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, Database, Users, AlertTriangle, LifeBuoy } from 'lucide-react';
 
 export const AdminHeader: React.FC<{ activeTab: string; onSelectTab: (tab: string) => void }> = ({
   activeTab,
@@ -27,6 +27,14 @@ export const AdminHeader: React.FC<{ activeTab: string; onSelectTab: (tab: strin
           }`}
         >
           <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Tenants</span>
+        </button>
+        <button
+          onClick={() => onSelectTab('support')}
+          className={`px-3 py-1.5 rounded transition ${
+            activeTab === 'support' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <span className="flex items-center gap-1.5"><LifeBuoy className="w-3.5 h-3.5" /> Support Desk</span>
         </button>
         <button
           onClick={() => onSelectTab('system')}
