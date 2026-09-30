@@ -20,12 +20,12 @@ export interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string>('mock_access_token');
-  const [userId, setUserId] = useState<string>('usr_demo_01');
-  const [email, setEmail] = useState<string>('owner@downtowndental-sf.com');
-  const [name, setName] = useState<string>('Dr. Sarah Lin');
-  const [tenantId, setTenantId] = useState<string>('saas_cust_demo_01');
-  const [role, setRole] = useState<UserRole>('OWNER');
+  const [token, setToken] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('');
+  const [email, setEmail] = useState<string>('');
+  const [name, setName] = useState<string>('');
+  const [tenantId, setTenantId] = useState<string>('');
+  const [role, setRole] = useState<UserRole>('MEMBER');
 
   useEffect(() => {
     try {
@@ -37,10 +37,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUserId(fbUser.uid);
             setEmail(fbUser.email || 'user@example.com');
             setName(fbUser.displayName || fbUser.email?.split('@')[0] || 'User');
-            // If user's email matches admin email, assign SUPER_ADMIN
-            if (fbUser.email === 'ouaretchoayb@gmail.com') {
-              setRole('SUPER_ADMIN');
-            }
           } catch (e) {
             console.warn('Failed to retrieve ID token from Firebase user:', e);
           }
@@ -61,9 +57,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserId(cred.user.uid);
         setEmail(cred.user.email || '');
         setName(cred.user.displayName || 'Google User');
-        if (cred.user.email === 'ouaretchoayb@gmail.com') {
-          setRole('SUPER_ADMIN');
-        }
       }
     } catch (err) {
       console.error('Failed to sign in with Google:', err);
@@ -84,18 +77,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginAs = (newRole: UserRole, targetTenantId = 'saas_cust_demo_01') => {
+    if (import.meta.env.PROD) return;
     const newToken = `test_token_usr_${Date.now()}_${targetTenantId}_${newRole.toLowerCase()}`;
     setToken(newToken);
     setRole(newRole);
     setTenantId(targetTenantId);
     setUserId(`usr_${newRole.toLowerCase()}`);
-    setEmail(`${newRole.toLowerCase()}@${targetTenantId}.com`);
-    setName(newRole === 'OWNER' ? 'Dr. Sarah Lin' : `${newRole} User`);
+    setEmail(`${newRole.toLowerCase()}@${targetTenantId}.test.invalid`);
+    setName(newRole === 'OWNER' ? 'Demo Owner' : `${newRole} User`);
   };
 
   const getAuthHeaders = (): Record<string, string> => {
     return {
-      'Authorization': `Bearer ${token}`,
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       'Content-Type': 'application/json',
     };
   };
