@@ -15,6 +15,8 @@ import { GeminiAiReplyEngine } from '../services/ai/aiReplyEngine';
 import { GoogleBusinessProfileService } from '../services/google/googleProfileProvider';
 import { BillingService } from '../services/billing/billingService';
 import { SupportService } from '../services/support/supportService';
+import { ReviewWorkflowService } from '../services/workflow/reviewWorkflowService';
+import type { AutomationMode } from '../services/workflow/types';
 
 const router = Router();
 
@@ -22,6 +24,10 @@ const aiEngine = new GeminiAiReplyEngine();
 const googleService = new GoogleBusinessProfileService();
 const billingService = new BillingService();
 const supportService = new SupportService();
+const workflowService = new ReviewWorkflowService({
+  aiEngine,
+  googleService,
+});
 
 // Mock in-memory state for initial bootstrap demonstration
 const mockSaaSCustomerId = 'saas_cust_demo_01';
@@ -186,6 +192,9 @@ let mockReplies: Record<string, ReviewReply> = {
   },
 };
 
+// Seed workflow service with baseline demo state
+workflowService.seedReviews(mockReviews, Object.values(mockReplies));
+
 // ==========================================
 // Helper functions
 // ==========================================
@@ -252,7 +261,22 @@ router.get('/google/locations', (_req: Request, res: Response) => {
   return sendSuccess(res, [mockLocation]);
 });
 
-router.post('/google/sync-reviews', async (_req: Request, res: Response) => {
+router.post('/google/sync-reviews', async (req: Request, res: Response) => {
+  // If specific new review provided in request body, process it through the workflow
+  if (req.body?.review) {
+    const result = await workflowService.processReview({
+      review: req.body.review,
+      brandVoice: mockBrandVoice,
+      customRules: mockRules,
+    });
+    return sendSuccess(res, {
+      syncedLocationId: mockLocation.id,
+      newReviewsFound: 1,
+      processedResult: result,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   return sendSuccess(res, {
     syncedLocationId: mockLocation.id,
     newReviewsFound: 0,
@@ -261,160 +285,131 @@ router.post('/google/sync-reviews', async (_req: Request, res: Response) => {
 });
 
 // ==========================================
-// REVIEWS & REPLIES ROUTES
+// REVIEWS & REPLIES ROUTES (WORKFLOW INTEGRATED)
 // ==========================================
 router.get('/reviews', (_req: Request, res: Response) => {
-  const fullReviews = mockReviews.map((rev) => ({
-    ...rev,
-    reply: rev.replyId ? mockReplies[rev.replyId] : undefined,
-  }));
+  const fullReviews = workflowService.listReviews(mockSaaSCustomerId);
   return sendSuccess(res, fullReviews);
 });
 
 router.get('/reviews/:id', (req: Request, res: Response) => {
-  const review = mockReviews.find((r) => r.id === req.params.id);
+  const review = workflowService.getReview(req.params.id);
   if (!review) {
     return sendError(res, 404, 'NOT_FOUND', 'Review not found');
   }
-  const reply = review.replyId ? mockReplies[review.replyId] : undefined;
-  return sendSuccess(res, { ...review, reply });
+  return sendSuccess(res, review);
 });
 
 router.post('/reviews/:id/approve', async (req: Request, res: Response) => {
-  const review = mockReviews.find((r) => r.id === req.params.id);
-  if (!review) {
-    return sendError(res, 404, 'NOT_FOUND', 'Review not found');
+  try {
+    const { editedReplyText } = req.body || {};
+    const result = await workflowService.approveReviewReply({
+      reviewId: req.params.id,
+      editedReplyText,
+      userId: 'usr_demo_01',
+    });
+
+    return sendSuccess(res, { review: result.review, reply: result.reply });
+  } catch (err: any) {
+    return sendError(res, 400, 'OPERATION_FAILED', err.message);
   }
+});
 
-  const reply = review.replyId ? mockReplies[review.replyId] : undefined;
-  if (!reply) {
-    return sendError(res, 404, 'NOT_FOUND', 'Reply draft not found for review');
+router.post('/reviews/:id/reject', async (req: Request, res: Response) => {
+  try {
+    const { reason } = req.body || {};
+    const result = await workflowService.rejectReviewReply({
+      reviewId: req.params.id,
+      reason,
+      userId: 'usr_demo_01',
+    });
+
+    return sendSuccess(res, { review: result.review, reply: result.reply });
+  } catch (err: any) {
+    return sendError(res, 400, 'OPERATION_FAILED', err.message);
   }
-
-  const { editedReplyText } = req.body || {};
-  const textToPublish = editedReplyText || reply.proposedText;
-
-  // Publish via Google adapter
-  await googleService.publishReviewReply('mock_access_token', review.googleReviewName, textToPublish);
-
-  reply.status = 'MANUALLY_PUBLISHED';
-  reply.publishedText = textToPublish;
-  reply.publishedAt = new Date().toISOString();
-  reply.reviewedAt = new Date().toISOString();
-
-  return sendSuccess(res, { review, reply });
 });
 
 router.post('/reviews/:id/regenerate', async (req: Request, res: Response) => {
-  const review = mockReviews.find((r) => r.id === req.params.id);
-  if (!review) {
-    return sendError(res, 404, 'NOT_FOUND', 'Review not found');
-  }
-
-  const analysis = await aiEngine.analyzeAndGenerateReply({
-    reviewText: review.comment || '',
-    rating: review.starRating,
-    reviewerName: review.author.displayName,
-    brandVoice: {
-      tone: mockBrandVoice.tone,
-      signOffTemplate: mockBrandVoice.signOffTemplate,
-      trustedBusinessContext: mockBrandVoice.trustedBusinessContext,
-    },
-    businessContext: {
-      businessName: mockLocation.locationName,
-      category: mockLocation.primaryCategory,
-      primaryPhone: mockLocation.primaryPhone,
-      primaryEmail: mockBrandVoice.trustedBusinessContext.contactEmailForInquiries,
-    },
-    configuredRules: mockRules,
-  });
-
-  review.riskAssessment = {
-    riskLevel: analysis.riskLevel,
-    flags: (analysis.safetyFlags || []) as any,
-    explanation: analysis.reasoningSummary,
-    confidenceScore: 0.98,
-    recommendedAction: analysis.suggestedAction,
-  };
-
-  let reply = review.replyId ? mockReplies[review.replyId] : undefined;
-  if (!reply) {
-    reply = {
-      id: `reply_${Date.now()}`,
-      reviewId: review.id,
-      saasCustomerId: mockSaaSCustomerId,
-      businessLocationId: mockLocation.id,
-      proposedText: analysis.reply,
-      status: 'PENDING_APPROVAL',
-      generatedByAi: true,
-      aiModel: 'gemini-3.8-flash',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    review.replyId = reply.id;
-    mockReplies[reply.id] = reply;
-  } else {
-    reply.proposedText = analysis.reply;
-    reply.aiModel = 'gemini-3.8-flash';
-    reply.status = 'PENDING_APPROVAL';
-    reply.updatedAt = new Date().toISOString();
-  }
-
-  return sendSuccess(res, { review, reply, analysis });
-});
-
-// ==========================================
-// DEDICATED AI ENGINE ROUTES
-// ==========================================
-router.post('/ai/analyze', async (req: Request, res: Response) => {
   try {
-    const {
-      reviewText = '',
-      rating = 5,
-      reviewerName,
-      businessContext,
-      brandVoice,
-      relevantBusinessFacts,
-      configuredRules,
-    } = req.body || {};
-
-    const resolvedBusinessContext = businessContext || {
-      businessName: mockLocation.locationName,
-      category: mockLocation.primaryCategory,
-      primaryPhone: mockLocation.primaryPhone,
-      primaryEmail: mockBrandVoice.trustedBusinessContext.contactEmailForInquiries,
-    };
-
-    const resolvedBrandVoice = brandVoice || {
-      tone: mockBrandVoice.tone,
-      signOffTemplate: mockBrandVoice.signOffTemplate,
-      trustedBusinessContext: mockBrandVoice.trustedBusinessContext,
-    };
-
-    const analysis = await aiEngine.analyzeAndGenerateReply({
-      reviewText,
-      rating: Number(rating) as any,
-      reviewerName,
-      businessContext: resolvedBusinessContext,
-      brandVoice: resolvedBrandVoice,
-      relevantBusinessFacts,
-      configuredRules: configuredRules || mockRules,
+    const result = await workflowService.regenerateReplyDraft({
+      reviewId: req.params.id,
+      brandVoice: mockBrandVoice,
+      userId: 'usr_demo_01',
     });
 
-    return sendSuccess(res, analysis);
-  } catch (err) {
-    return sendError(res, 500, 'AI_ENGINE_ERROR', (err as Error).message);
+    return sendSuccess(res, { review: result.review, reply: result.reply });
+  } catch (err: any) {
+    return sendError(res, 400, 'OPERATION_FAILED', err.message);
   }
 });
 
-router.post('/ai/safety-check', async (req: Request, res: Response) => {
-  try {
-    const { reviewText = '', rating = 5 } = req.body || {};
-    const risk = await aiEngine.assessRisk(reviewText, Number(rating));
-    return sendSuccess(res, risk);
-  } catch (err) {
-    return sendError(res, 500, 'AI_SAFETY_ERROR', (err as Error).message);
+// ==========================================
+// AUTOMATION & WORKFLOW CONTROLS (PAUSE, RESUME, MODE, AUDIT)
+// ==========================================
+router.post('/automation/pause', async (req: Request, res: Response) => {
+  const locationId = (req.body?.locationId as string) || mockLocation.id;
+  const reason = (req.body?.reason as string) || 'Manual customer pause';
+  const config = await workflowService.pauseAutomation({
+    saasCustomerId: mockSaaSCustomerId,
+    locationId,
+    reason,
+    userId: 'usr_demo_01',
+  });
+  return sendSuccess(res, config);
+});
+
+router.post('/automation/resume', async (req: Request, res: Response) => {
+  const locationId = (req.body?.locationId as string) || mockLocation.id;
+  const config = await workflowService.resumeAutomation({
+    saasCustomerId: mockSaaSCustomerId,
+    locationId,
+    userId: 'usr_demo_01',
+  });
+  return sendSuccess(res, config);
+});
+
+router.get('/automation/status', (req: Request, res: Response) => {
+  const locationId = (req.query?.locationId as string) || mockLocation.id;
+  const config = workflowService.getAutomationConfig(mockSaaSCustomerId, locationId);
+  const usage = workflowService.getUsageGuard().getUsageStatus(mockSaaSCustomerId);
+  return sendSuccess(res, { config, usage });
+});
+
+router.post('/automation/mode', async (req: Request, res: Response) => {
+  const locationId = (req.body?.locationId as string) || mockLocation.id;
+  const mode = req.body?.mode as AutomationMode;
+  if (!mode || !['SAFE', 'BALANCED', 'FULL'].includes(mode)) {
+    return sendError(res, 400, 'INVALID_INPUT', 'Mode must be SAFE, BALANCED, or FULL');
   }
+
+  const config = await workflowService.setAutomationMode({
+    saasCustomerId: mockSaaSCustomerId,
+    locationId,
+    mode,
+    userId: 'usr_demo_01',
+  });
+  return sendSuccess(res, config);
+});
+
+router.get('/automation/audit', async (req: Request, res: Response) => {
+  const events = await workflowService.getAuditService().getEventsForCustomer(mockSaaSCustomerId);
+  return sendSuccess(res, events);
+});
+
+// ==========================================
+// NOTIFICATIONS ROUTES
+// ==========================================
+router.get('/notifications', async (_req: Request, res: Response) => {
+  const notifications = await workflowService
+    .getNotificationService()
+    .listNotifications(mockSaaSCustomerId);
+  return sendSuccess(res, notifications);
+});
+
+router.post('/notifications/:id/read', async (req: Request, res: Response) => {
+  await workflowService.getNotificationService().markAsRead(req.params.id);
+  return sendSuccess(res, { status: 'marked_as_read', id: req.params.id });
 });
 
 // ==========================================
