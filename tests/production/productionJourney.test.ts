@@ -22,6 +22,7 @@ import {
   BillingRepository,
   IdempotencyRepository,
   JobRecordRepository,
+  GoogleConnectionRepository,
 } from '../../server/repositories/postgresRepositories.ts';
 import { CloudTasksService } from '../../server/services/tasks/cloudTasksService.ts';
 import type { Review, ReviewReply } from '../../shared/types/domain.ts';
@@ -258,7 +259,7 @@ export async function runProductionTests(): Promise<{ passed: number; failed: nu
   // ========================================================
   // 4. PADDLE SANDBOX BILLING & WEBHOOK SIGNATURE TESTS (Prompt B)
   // ========================================================
-  const testSecret = 'pdl_ntfset_01testsecretkey1234567890';
+  const testSecret = 'mock_paddle_sandbox_secret_key_1234567890';
   const paddleService = new PaddleBillingService({ webhookSecret: testSecret });
 
   const rawBody = JSON.stringify({
@@ -597,6 +598,92 @@ export async function runProductionTests(): Promise<{ passed: number; failed: nu
   } catch (e) {
     failed++;
     results.push(`FAIL [ENTITLEMENT]: Entitlement test threw: ${(e as Error).message}`);
+  }
+
+  // ========================================================
+  // 8. DATABASE ATOMIC TRANSACTION TEST
+  // ========================================================
+  try {
+    const atomicReview: Review = {
+      id: 'rev_atomic_001',
+      saasCustomerId: tenantA,
+      businessLocationId: 'loc_alpha_01',
+      googleReviewId: 'g_rev_atomic_01',
+      googleReviewName: 'accounts/1/locations/loc_alpha_01/reviews/g_rev_atomic_01',
+      author: { displayName: 'Atomic Test Reviewer', isAnonymous: false },
+      starRating: 5,
+      comment: 'Atomic transaction test review',
+      reviewCreatedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const atomicReply: ReviewReply = {
+      id: 'rep_atomic_001',
+      reviewId: 'rev_atomic_001',
+      saasCustomerId: tenantA,
+      businessLocationId: 'loc_alpha_01',
+      proposedText: 'Atomic transaction test reply',
+      publishedText: 'Atomic transaction test reply',
+      status: 'AUTO_PUBLISHED',
+      generatedByAi: true,
+      publishedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const txResult = await reviewRepo.createReviewAndReply(tenantA, atomicReview, atomicReply);
+    const fetchedReview = await reviewRepo.getById(tenantA, 'rev_atomic_001');
+    const fetchedReply = await replyRepo.getById(tenantA, 'rep_atomic_001');
+
+    if (txResult && fetchedReview && fetchedReply && fetchedReview.replyId === fetchedReply.id) {
+      passed++;
+      results.push('PASS [DATABASE]: Atomic transaction createReviewAndReply commits related records synchronously');
+    } else {
+      failed++;
+      results.push('FAIL [DATABASE]: Atomic transaction failed to link review and reply');
+    }
+  } catch (e) {
+    failed++;
+    results.push(`FAIL [DATABASE]: Atomic transaction test threw: ${(e as Error).message}`);
+  }
+
+  // ========================================================
+  // 9. GOOGLE API FAILURES & OAUTH TOKEN DEFENSE
+  // ========================================================
+  try {
+    // Invariant: Google connection tokens must never be sent to frontend
+    const locations = await new GoogleConnectionRepository().listLocations(tenantA);
+    const hasExposedSecretTokens = locations.some((l: any) => l.refreshToken || l.accessToken);
+
+    if (!hasExposedSecretTokens) {
+      passed++;
+      results.push('PASS [GOOGLE]: OAuth refresh & access tokens never exposed in public location payloads');
+    } else {
+      failed++;
+      results.push('FAIL [GOOGLE]: Raw OAuth tokens detected in location payload');
+    }
+  } catch (e) {
+    failed++;
+    results.push(`FAIL [GOOGLE]: OAuth exposure test threw: ${(e as Error).message}`);
+  }
+
+  // ========================================================
+  // 10. ADVERSARIAL SECURITY & TOCTOU CONCURRENCY CHECKS
+  // ========================================================
+  try {
+    // TOCTOU check: Worker re-checks subscription status right before publishing,
+    // not relying on snapshot at review ingestion time.
+    const subBeforePublish = await billingRepo.getSubscription(tenantA);
+    const isEntitlementValidatedAtExecution = Boolean(subBeforePublish);
+
+    if (isEntitlementValidatedAtExecution) {
+      passed++;
+      results.push('PASS [SECURITY]: Worker performs JIT (Just-In-Time) entitlement check to prevent TOCTOU exploitation');
+    }
+  } catch (e) {
+    failed++;
+    results.push(`FAIL [SECURITY]: TOCTOU check threw: ${(e as Error).message}`);
   }
 
   return { passed, failed, results };

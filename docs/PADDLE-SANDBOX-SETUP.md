@@ -45,7 +45,7 @@ Create three subscription plans with monthly billing intervals:
    - `subscription.created`
    - `subscription.updated`
    - `subscription.canceled`
-5. Copy the generated **Secret Key** (`pdl_ntfset_...`) and store it as `PADDLE_WEBHOOK_SECRET`.
+5. Copy the generated **Secret Key** and store it as `PADDLE_WEBHOOK_SECRET`.
 
 ---
 

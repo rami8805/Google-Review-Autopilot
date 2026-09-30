@@ -68,6 +68,7 @@ export interface IReviewRepository {
   getById(tenantId: string, reviewId: string): Promise<Review | null>;
   getByGoogleReviewName(tenantId: string, googleReviewName: string): Promise<Review | null>;
   create(tenantId: string, review: Review): Promise<Review>;
+  createReviewAndReply(tenantId: string, review: Review, reply: ReviewReply): Promise<{ review: Review; reply: ReviewReply }>;
   update(tenantId: string, reviewId: string, updates: Partial<Review>): Promise<Review | null>;
 }
 

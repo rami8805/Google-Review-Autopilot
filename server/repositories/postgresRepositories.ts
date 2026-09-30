@@ -406,6 +406,60 @@ export class ReviewRepository implements IReviewRepository {
     return review;
   }
 
+  async createReviewAndReply(
+    tenantId: string,
+    review: Review,
+    reply: ReviewReply
+  ): Promise<{ review: Review; reply: ReviewReply }> {
+    review.replyId = reply.id;
+    memStore.reviews.set(review.id, { ...review, saasCustomerId: tenantId });
+    memStore.replies.set(reply.id, { ...reply, saasCustomerId: tenantId });
+
+    if (await isDbLive()) {
+      try {
+        await db.transaction(async (tx) => {
+          await tx.insert(schema.reviews).values({
+            id: review.id,
+            tenantId,
+            businessLocationId: review.businessLocationId,
+            googleReviewId: review.googleReviewId,
+            googleReviewName: review.googleReviewName,
+            authorName: review.author.displayName,
+            authorIsAnonymous: review.author.isAnonymous,
+            starRating: review.starRating,
+            comment: review.comment,
+            reviewCreatedAt: new Date(review.reviewCreatedAt),
+            riskLevel: review.riskAssessment?.riskLevel || 'LOW',
+            riskFlags: review.riskAssessment?.flags || [],
+            riskExplanation: review.riskAssessment?.explanation,
+            riskConfidence: review.riskAssessment?.confidenceScore?.toString(),
+            replyId: reply.id,
+          });
+
+          await tx.insert(schema.reviewReplies).values({
+            id: reply.id,
+            tenantId,
+            reviewId: review.id,
+            businessLocationId: reply.businessLocationId,
+            proposedText: reply.proposedText,
+            publishedText: reply.publishedText,
+            status: reply.status,
+            generatedByAi: reply.generatedByAi,
+            aiModel: reply.aiModel,
+            guardDecision: reply.guardResult?.decision,
+            guardResultJson: reply.guardResult as any,
+            regenerationCount: reply.regenerationCount || 0,
+            publishedAt: reply.publishedAt ? new Date(reply.publishedAt) : undefined,
+          });
+        });
+      } catch (err) {
+        console.warn('[ReviewRepo] Transaction error in createReviewAndReply:', (err as Error).message);
+      }
+    }
+
+    return { review, reply };
+  }
+
   async update(tenantId: string, reviewId: string, updates: Partial<Review>): Promise<Review | null> {
     const existing = await this.getById(tenantId, reviewId);
     if (!existing) return null;

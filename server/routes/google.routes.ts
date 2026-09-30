@@ -202,10 +202,8 @@ router.post('/sync-reviews', async (req: AuthenticatedRequest, res) => {
     })),
   });
 
-  // Save to repositories (database)
-  newReview.replyId = reply.id;
-  await reviewRepo.create(tenantId, newReview);
-  await replyRepo.create(tenantId, reply);
+  // Save to repositories atomically in PostgreSQL transaction
+  await reviewRepo.createReviewAndReply(tenantId, newReview, reply);
 
   // Log audit event
   await auditRepo.logEvent({
