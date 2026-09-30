@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "NODE_ENV=test tsx tests/runAllTests.ts"
+    "test": "NODE_ENV=test tsx tests/runAllTests.ts",
+    "db:seed": "tsx server/db/seed.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

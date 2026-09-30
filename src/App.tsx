@@ -10,6 +10,7 @@ import { SupportWidget } from './features/support/SupportWidget';
 import { OnboardingWizard } from './features/onboarding/OnboardingWizard';
 import { AdminDashboardPage } from '../admin/pages/AdminDashboardPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { getPaddleInstance } from './lib/paddle';
 import type {
   BusinessLocation,
   Review,
@@ -231,15 +232,14 @@ function AppContent() {
     }
   };
 
-  const handleUpdateSubscription = async (plan?: SubscriptionPlan, status?: SubscriptionStatus) => {
-    const updatedPlan = plan || subscription.plan;
-    const priceId = updatedPlan === 'PRO' ? 'pri_sandbox_pro_01' : updatedPlan === 'GROWTH' ? 'pri_sandbox_growth_01' : 'pri_sandbox_starter_01';
+  const handleUpdateSubscription = async (plan?: SubscriptionPlan) => {
+    const targetPlan = plan || 'GROWTH';
 
     try {
       const res = await fetch('/api/billing/create-checkout', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ priceId, returnUrl: window.location.href }),
+        body: JSON.stringify({ plan: targetPlan, returnUrl: window.location.href }),
       });
 
       if (!res.ok) {
@@ -248,15 +248,37 @@ function AppContent() {
       }
 
       const payload = await res.json();
-      if (payload?.data?.checkoutUrl) {
-        showFeedback('Redirecting to Paddle Sandbox checkout...', 'success');
-        // Simulated or real Paddle Sandbox checkout flow
-        setSubscription((prev) => ({
-          ...prev,
-          plan: updatedPlan,
-          status: status || 'ACTIVE',
-        }));
+      const transactionId = payload?.data?.transactionId;
+      const checkoutUrl = payload?.data?.checkoutUrl;
+
+      // Use Paddle.js overlay if available, otherwise direct checkout URL
+      const paddle = await getPaddleInstance();
+      if (paddle && transactionId) {
+        paddle.Checkout.open({
+          transactionId,
+          settings: {
+            displayMode: 'overlay',
+            theme: 'light',
+          },
+        });
+      } else if (checkoutUrl) {
+        window.location.href = checkoutUrl;
       }
+
+      showFeedback('Paddle checkout initialized. Paid entitlements activate once confirmed via webhook.', 'success');
+
+      // Re-fetch authoritative subscription state from database
+      setTimeout(async () => {
+        try {
+          const subRes = await fetch('/api/billing/subscription', { headers: getAuthHeaders() });
+          if (subRes.ok) {
+            const subData = await subRes.json();
+            if (subData?.data) setSubscription(subData.data);
+          }
+        } catch {
+          // Ignore
+        }
+      }, 2500);
     } catch (err) {
       showFeedback((err as Error).message, 'error');
     }

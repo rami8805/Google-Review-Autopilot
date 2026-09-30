@@ -220,15 +220,33 @@ const memStore = {
   paddleSubscriptions: new Map<string, PaddleSubscriptionRecord>(),
 };
 
-// Check if PostgreSQL is available
+// Check if PostgreSQL is available with caching and fast fallback
+let _cachedDbLive: boolean | null = null;
+let _lastDbCheckTime = 0;
+const DB_CHECK_TTL = 30000; // 30s cache
+
 async function isDbLive(): Promise<boolean> {
   if (process.env.NODE_ENV === 'test' && !process.env.USE_REAL_DB) {
     return false;
   }
+  // If no SQL host, connection name, or database URL is configured, fallback to in-memory store immediately
+  if (!process.env.SQL_HOST && !process.env.DATABASE_URL && !process.env.INSTANCE_CONNECTION_NAME) {
+    return false;
+  }
+  const now = Date.now();
+  if (_cachedDbLive !== null && now - _lastDbCheckTime < DB_CHECK_TTL) {
+    return _cachedDbLive;
+  }
   try {
-    await db.execute(sql`SELECT 1`);
+    const probe = db.execute(sql`SELECT 1`);
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('DB probe timeout')), 1000));
+    await Promise.race([probe, timeout]);
+    _cachedDbLive = true;
+    _lastDbCheckTime = now;
     return true;
   } catch {
+    _cachedDbLive = false;
+    _lastDbCheckTime = now;
     return false;
   }
 }

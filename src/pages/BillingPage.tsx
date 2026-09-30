@@ -4,7 +4,7 @@ import type { Subscription, SubscriptionPlan, SubscriptionStatus } from '../../s
 
 interface BillingPageProps {
   subscription: Subscription;
-  onUpdateSubscription?: (plan?: SubscriptionPlan, status?: SubscriptionStatus) => Promise<void>;
+  onUpdateSubscription?: (plan?: SubscriptionPlan) => Promise<void>;
 }
 
 export const BillingPage: React.FC<BillingPageProps> = ({ subscription, onUpdateSubscription }) => {

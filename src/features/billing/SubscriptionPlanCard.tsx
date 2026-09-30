@@ -4,7 +4,7 @@ import { Check, ShieldCheck, Zap, AlertTriangle, AlertCircle, RefreshCw, CreditC
 
 interface SubscriptionPlanCardProps {
   subscription: Subscription;
-  onUpdateSubscription?: (plan?: SubscriptionPlan, status?: SubscriptionStatus) => Promise<void>;
+  onUpdateSubscription?: (plan?: SubscriptionPlan) => Promise<void>;
 }
 
 export const SubscriptionPlanCard: React.FC<SubscriptionPlanCardProps> = ({
@@ -18,21 +18,9 @@ export const SubscriptionPlanCard: React.FC<SubscriptionPlanCardProps> = ({
     if (!onUpdateSubscription) return;
     setIsUpdating(true);
     try {
-      await onUpdateSubscription(plan, 'ACTIVE');
-      setActionFeedback(`Successfully switched plan to ${plan}!`);
-      setTimeout(() => setActionFeedback(null), 3000);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleStatusChange = async (status: SubscriptionStatus) => {
-    if (!onUpdateSubscription) return;
-    setIsUpdating(true);
-    try {
-      await onUpdateSubscription(subscription.plan, status);
-      setActionFeedback(`Subscription state updated to ${status}!`);
-      setTimeout(() => setActionFeedback(null), 3000);
+      await onUpdateSubscription(plan);
+      setActionFeedback(`Initiated checkout for ${plan}. Entitlements activate upon payment verification.`);
+      setTimeout(() => setActionFeedback(null), 4000);
     } finally {
       setIsUpdating(false);
     }
@@ -86,7 +74,7 @@ export const SubscriptionPlanCard: React.FC<SubscriptionPlanCardProps> = ({
             </div>
           </div>
           <button
-            onClick={() => handleStatusChange('ACTIVE')}
+            onClick={() => handlePlanChange(subscription.plan)}
             disabled={isUpdating}
             className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shrink-0"
           >
@@ -138,62 +126,6 @@ export const SubscriptionPlanCard: React.FC<SubscriptionPlanCardProps> = ({
               style={{ width: `${Math.min((14 / subscription.monthlyReplyLimit) * 100, 100)}%` }}
             />
           </div>
-        </div>
-      </div>
-
-      {/* Simulator bar for testing Phase 8 lifecycle */}
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <CreditCard className="w-4 h-4 text-slate-600" />
-          <span className="font-bold text-slate-800">Billing Lifecycle Tester (Paddle Sandbox):</span>
-          <span className="text-slate-500">Test how app entitlements respond to state changes.</span>
-        </div>
-
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            onClick={() => handleStatusChange('ACTIVE')}
-            disabled={isUpdating}
-            className={`px-2.5 py-1 rounded text-[11px] font-semibold transition ${
-              subscription.status === 'ACTIVE'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            Active
-          </button>
-          <button
-            onClick={() => handleStatusChange('TRIALING')}
-            disabled={isUpdating}
-            className={`px-2.5 py-1 rounded text-[11px] font-semibold transition ${
-              subscription.status === 'TRIALING'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            Trialing
-          </button>
-          <button
-            onClick={() => handleStatusChange('PAST_DUE')}
-            disabled={isUpdating}
-            className={`px-2.5 py-1 rounded text-[11px] font-semibold transition ${
-              subscription.status === 'PAST_DUE'
-                ? 'bg-amber-600 text-white'
-                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            Past Due
-          </button>
-          <button
-            onClick={() => handleStatusChange('CANCELED')}
-            disabled={isUpdating}
-            className={`px-2.5 py-1 rounded text-[11px] font-semibold transition ${
-              subscription.status === 'CANCELED'
-                ? 'bg-rose-600 text-white'
-                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            Cancel / Paused
-          </button>
         </div>
       </div>
 

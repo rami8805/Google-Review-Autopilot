@@ -44,7 +44,7 @@ export interface FieldValidationError {
 }
 
 export interface ProviderErrorDetail {
-  provider: 'GOOGLE_BUSINESS_PROFILE' | 'GEMINI' | 'STRIPE' | 'RESEND';
+  provider: 'GOOGLE_BUSINESS_PROFILE' | 'GEMINI' | 'PADDLE' | 'RESEND';
   providerCode?: string | number;
   providerMessage?: string;
   retryable: boolean;
