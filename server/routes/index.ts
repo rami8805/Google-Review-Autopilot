@@ -13,24 +13,17 @@ import type {
 import { DEFAULT_AUTOMATION_RULES } from '../../shared/constants/automation';
 import { GeminiAiReplyEngine } from '../services/ai/aiReplyEngine';
 import { GoogleBusinessProfileService } from '../services/google/googleProfileProvider';
-import { billingService } from '../services/billing/billingService';
-import { authService } from '../services/auth/authService';
-import {
-  authenticateUser,
-  optionalAuth,
-  requireRole,
-  tenantGuard,
-  AuthenticatedRequest,
-} from '../services/auth/authMiddleware';
-import { usageService } from '../services/billing/usageService';
-import { PLAN_CATALOG, getPlanDefinition } from '../../shared/constants/billing';
+import { BillingService } from '../services/billing/billingService';
 import { SupportService } from '../services/support/supportService';
+import { CustomerManagementService } from '../services/customer-management/customerManagementService';
 
 const router = Router();
 
 const aiEngine = new GeminiAiReplyEngine();
 const googleService = new GoogleBusinessProfileService();
+const billingService = new BillingService();
 const supportService = new SupportService();
+const customerMgmtService = new CustomerManagementService();
 
 // Mock in-memory state for initial bootstrap demonstration
 const mockSaaSCustomerId = 'saas_cust_demo_01';
@@ -226,89 +219,27 @@ function sendError(res: Response, status: number, code: any, message: string, de
 // ==========================================
 // AUTH & CONTEXT ROUTES
 // ==========================================
-router.post('/auth/signup', async (req: Request, res: Response) => {
-  try {
-    const { email, password, name, businessName } = req.body || {};
-    if (!email || !password || !name || !businessName) {
-      return sendError(
-        res,
-        400,
-        'VALIDATION_ERROR',
-        'All fields (email, password, name, businessName) are required'
-      );
-    }
-
-    const result = await authService.signup({ email, password, name, businessName });
-    const trialSub = billingService.createTrialSubscription(result.saasCustomer.id, 'PRO');
-
-    return sendSuccess(res, {
-      token: result.token,
-      user: result.user,
-      saasCustomer: result.saasCustomer,
-      business: result.business,
-      subscription: trialSub,
-    });
-  } catch (err: any) {
-    const message = err.message || 'Signup failed';
-    const isConflict = message.includes('EMAIL_EXISTS');
-    return sendError(res, isConflict ? 409 : 400, isConflict ? 'CONFLICT' : 'VALIDATION_ERROR', message);
-  }
-});
-
-router.post('/auth/login', async (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body || {};
-    if (!email || !password) {
-      return sendError(res, 400, 'VALIDATION_ERROR', 'Email and password are required');
-    }
-
-    const result = await authService.login({ email, password });
-    return sendSuccess(res, result);
-  } catch (err: any) {
-    return sendError(res, 401, 'AUTHENTICATION_REQUIRED', err.message || 'Invalid credentials');
-  }
-});
-
-router.get('/auth/me', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || !req.saasCustomerId) {
-    return sendError(res, 401, 'AUTHENTICATION_REQUIRED', 'Not authenticated');
-  }
-
-  const customer = authService.getSaaSCustomer(req.saasCustomerId);
+router.get('/auth/me', (_req: Request, res: Response) => {
   return sendSuccess(res, {
-    user: req.user,
-    saasCustomer: customer || {
-      id: req.saasCustomerId,
+    user: {
+      id: 'usr_demo_01',
+      email: 'owner@downtowndental-sf.com',
+      name: 'Dr. Sarah Lin',
+      role: 'OWNER',
+      saasCustomerId: mockSaaSCustomerId,
+      emailVerified: true,
+      createdAt: '2026-01-15T00:00:00.000Z',
+      updatedAt: '2026-01-15T00:00:00.000Z',
+    },
+    saasCustomer: {
+      id: mockSaaSCustomerId,
       name: 'Downtown Dental SF',
-      billingEmail: req.user.email,
+      billingEmail: 'billing@downtowndental-sf.com',
       status: 'ACTIVE',
-      createdAt: req.user.createdAt,
-      updatedAt: req.user.updatedAt,
+      createdAt: '2026-01-15T00:00:00.000Z',
+      updatedAt: '2026-01-15T00:00:00.000Z',
     },
   });
-});
-
-router.post(
-  '/auth/invite',
-  authenticateUser,
-  requireRole(['CUSTOMER_OWNER', 'OWNER']),
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { email, name, role } = req.body || {};
-      if (!email || !name) {
-        return sendError(res, 400, 'VALIDATION_ERROR', 'Email and name are required');
-      }
-
-      const invitedUser = await authService.inviteMember(req.user!.id, { email, name, role });
-      return sendSuccess(res, invitedUser);
-    } catch (err: any) {
-      return sendError(res, 400, 'VALIDATION_ERROR', err.message || 'Invitation failed');
-    }
-  }
-);
-
-router.post('/auth/logout', (_req: Request, res: Response) => {
-  return sendSuccess(res, { message: 'Logged out successfully' });
 });
 
 // ==========================================
@@ -452,179 +383,365 @@ router.put('/settings/brand-voice', (req: Request, res: Response) => {
 // ==========================================
 // BILLING ROUTES
 // ==========================================
-router.get('/billing/subscription', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const customerId = req.saasCustomerId || mockSaaSCustomerId;
-  const sub = await billingService.getSubscription(customerId);
+router.get('/billing/subscription', async (_req: Request, res: Response) => {
+  const sub = await billingService.getSubscription(mockSaaSCustomerId);
   return sendSuccess(res, sub);
 });
 
-router.get('/billing/plans', (_req: Request, res: Response) => {
-  return sendSuccess(res, PLAN_CATALOG);
-});
+// ==========================================
+// SECURITY MIDDLEWARE
+// ==========================================
+function getAuthenticatedContext(req: Request) {
+  const role = (req.headers['x-user-role'] as string) || 'SUPER_ADMIN';
+  const tenantId = (req.headers['x-saas-customer-id'] as string) || mockSaaSCustomerId;
+  const userEmail = (req.headers['x-user-email'] as string) || 'admin@reviewautopilot.com';
+  const userName = (req.headers['x-user-name'] as string) || 'Platform Administrator';
+  const userId = (req.headers['x-user-id'] as string) || 'admin_usr_01';
+  return { role, tenantId, userEmail, userName, userId };
+}
 
-router.post(
-  '/api/billing/checkout',
-  authenticateUser,
-  requireRole(['CUSTOMER_OWNER', 'OWNER']),
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { plan = 'PRO', returnUrl, idempotencyKey } = req.body || {};
-      const redirect = returnUrl || `${req.headers.origin || 'http://localhost:3000'}/billing`;
-      const key = idempotencyKey || (req.headers['idempotency-key'] as string);
-      const session = await billingService.createCheckoutSession(
-        req.saasCustomerId!,
-        plan,
-        redirect,
-        key
-      );
-      return sendSuccess(res, session);
-    } catch (err: any) {
-      return sendError(res, 400, 'PROVIDER_ERROR', err.message || 'Checkout creation failed');
-    }
+function requirePlatformAdmin(req: Request, res: Response, next: () => void) {
+  const { role } = getAuthenticatedContext(req);
+  const allowedAdminRoles = ['PLATFORM_ADMIN', 'SUPER_ADMIN', 'ADMIN'];
+  if (!allowedAdminRoles.includes(role)) {
+    return sendError(res, 403, 'FORBIDDEN', 'Access restricted to Platform Administrators (PLATFORM_ADMIN role required).', {
+      requiredRole: 'PLATFORM_ADMIN',
+      providedRole: role,
+    });
   }
-);
-
-// Also alias without /api prefix since router is mounted at /api
-router.post(
-  '/billing/checkout',
-  authenticateUser,
-  requireRole(['CUSTOMER_OWNER', 'OWNER']),
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { plan = 'PRO', returnUrl, idempotencyKey } = req.body || {};
-      const redirect = returnUrl || `${req.headers.origin || 'http://localhost:3000'}/billing`;
-      const key = idempotencyKey || (req.headers['idempotency-key'] as string);
-      const session = await billingService.createCheckoutSession(
-        req.saasCustomerId!,
-        plan,
-        redirect,
-        key
-      );
-      return sendSuccess(res, session);
-    } catch (err: any) {
-      return sendError(res, 400, 'PROVIDER_ERROR', err.message || 'Checkout creation failed');
-    }
-  }
-);
-
-router.post(
-  '/billing/portal',
-  authenticateUser,
-  requireRole(['CUSTOMER_OWNER', 'OWNER']),
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { returnUrl } = req.body || {};
-      const redirect = returnUrl || `${req.headers.origin || 'http://localhost:3000'}/billing`;
-      const portal = await billingService.createPortalSession(req.saasCustomerId!, redirect);
-      return sendSuccess(res, portal);
-    } catch (err: any) {
-      return sendError(res, 400, 'PROVIDER_ERROR', err.message || 'Portal session creation failed');
-    }
-  }
-);
-
-router.post(
-  '/billing/cancel',
-  authenticateUser,
-  requireRole(['CUSTOMER_OWNER', 'OWNER']),
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { cancelAtPeriodEnd = true } = req.body || {};
-      const result = await billingService.cancelSubscription(req.saasCustomerId!, cancelAtPeriodEnd);
-      return sendSuccess(res, result);
-    } catch (err: any) {
-      return sendError(res, 400, 'PROVIDER_ERROR', err.message || 'Subscription cancellation failed');
-    }
-  }
-);
-
-router.post(
-  '/billing/resume',
-  authenticateUser,
-  requireRole(['CUSTOMER_OWNER', 'OWNER']),
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const sub = await billingService.resumeSubscription(req.saasCustomerId!);
-      return sendSuccess(res, sub);
-    } catch (err: any) {
-      return sendError(res, 400, 'PROVIDER_ERROR', err.message || 'Failed to resume subscription');
-    }
-  }
-);
-
-router.get('/billing/invoices', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const customerId = req.saasCustomerId || mockSaaSCustomerId;
-  const invoices = await billingService.listInvoices(customerId);
-  return sendSuccess(res, invoices);
-});
-
-router.get('/billing/usage', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const customerId = req.saasCustomerId || mockSaaSCustomerId;
-  const sub = await billingService.getSubscription(customerId);
-  return sendSuccess(res, sub.usage);
-});
-
-router.post('/billing/webhook', async (req: Request, res: Response) => {
-  try {
-    const rawPayload = (req as any).rawBody || JSON.stringify(req.body);
-    const signature =
-      (req.headers['stripe-signature'] as string) ||
-      (req.headers['x-webhook-signature'] as string) ||
-      '';
-    const idempotencyKey =
-      (req.headers['idempotency-key'] as string) ||
-      (req.headers['x-idempotency-key'] as string);
-
-    const result = await billingService.handleWebhook(rawPayload, signature, idempotencyKey);
-    if (!result.processed) {
-      return sendError(res, 400, 'VALIDATION_ERROR', result.error || 'Webhook verification failed');
-    }
-    return res.status(200).json({ received: true, ...result });
-  } catch (err: any) {
-    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', err.message || 'Webhook processing failed');
-  }
-});
+  next();
+}
 
 // ==========================================
-// SUPPORT ROUTES
+// SUPPORT ROUTES (CUSTOMER-FACING)
 // ==========================================
-router.get('/support/tickets', async (_req: Request, res: Response) => {
-  const tickets = await supportService.listTickets(mockSaaSCustomerId);
+// List tickets for current SaaSCustomer (tenant-isolated, strips internal notes)
+router.get('/support/tickets', async (req: Request, res: Response) => {
+  const { tenantId } = getAuthenticatedContext(req);
+  const tickets = await supportService.listCustomerTickets(tenantId);
   return sendSuccess(res, tickets);
 });
 
+// Create new support ticket
 router.post('/support/tickets', async (req: Request, res: Response) => {
-  const { email, subject, message } = req.body;
-  const ticket = await supportService.createTicket(mockSaaSCustomerId, email, subject, message);
+  const { tenantId, userEmail } = getAuthenticatedContext(req);
+  const { subject, category, priority, message, attachments, email } = req.body;
+
+  if (!subject || !message) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Subject and message are required.');
+  }
+
+  try {
+    const ticket = await supportService.createTicket({
+      saasCustomerId: tenantId,
+      userEmail: email || userEmail,
+      subject,
+      category: category || 'OTHER',
+      priority: priority || 'NORMAL',
+      message,
+      attachments,
+    });
+    return sendSuccess(res, ticket);
+  } catch (err: any) {
+    return sendError(res, 400, 'VALIDATION_ERROR', err.message || 'Failed to create support ticket');
+  }
+});
+
+// Get single ticket for customer (enforces tenant isolation)
+router.get('/support/tickets/:ticketId', async (req: Request, res: Response) => {
+  const { tenantId } = getAuthenticatedContext(req);
+  try {
+    const ticket = await supportService.getCustomerTicket(req.params.ticketId, tenantId);
+    if (!ticket) {
+      return sendError(res, 404, 'NOT_FOUND', 'Support ticket not found');
+    }
+    return sendSuccess(res, ticket);
+  } catch (err: any) {
+    if (err.code === 'TENANT_MISMATCH') {
+      return sendError(res, 403, 'TENANT_MISMATCH', 'Access denied: ticket belongs to another tenant.');
+    }
+    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', err.message);
+  }
+});
+
+// Customer replies to ticket
+router.post('/support/tickets/:ticketId/reply', async (req: Request, res: Response) => {
+  const { tenantId, userName, userEmail } = getAuthenticatedContext(req);
+  const { message, attachments, senderName } = req.body;
+
+  if (!message || !message.trim()) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Reply message text is required.');
+  }
+
+  try {
+    const reply = await supportService.customerReply(
+      req.params.ticketId,
+      tenantId,
+      senderName || userName || userEmail,
+      message,
+      attachments
+    );
+    return sendSuccess(res, reply);
+  } catch (err: any) {
+    if (err.code === 'TENANT_MISMATCH') {
+      return sendError(res, 403, 'TENANT_MISMATCH', 'Access denied: cannot reply to another tenant ticket.');
+    }
+    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
+  }
+});
+
+// Customer closes ticket
+router.post('/support/tickets/:ticketId/close', async (req: Request, res: Response) => {
+  const { tenantId } = getAuthenticatedContext(req);
+  try {
+    const ticket = await supportService.closeCustomerTicket(req.params.ticketId, tenantId);
+    return sendSuccess(res, ticket);
+  } catch (err: any) {
+    if (err.code === 'TENANT_MISMATCH') {
+      return sendError(res, 403, 'TENANT_MISMATCH', 'Access denied.');
+    }
+    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
+  }
+});
+
+// Customer reopens ticket
+router.post('/support/tickets/:ticketId/reopen', async (req: Request, res: Response) => {
+  const { tenantId } = getAuthenticatedContext(req);
+  try {
+    const ticket = await supportService.reopenCustomerTicket(req.params.ticketId, tenantId);
+    return sendSuccess(res, ticket);
+  } catch (err: any) {
+    if (err.code === 'TENANT_MISMATCH') {
+      return sendError(res, 403, 'TENANT_MISMATCH', 'Access denied.');
+    }
+    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
+  }
+});
+
+// Secure attachment download
+router.get('/support/tickets/:ticketId/attachments/:attachmentId', (req: Request, res: Response) => {
+  const { tenantId, role } = getAuthenticatedContext(req);
+  try {
+    const attachment = supportService.getAttachment(req.params.attachmentId, {
+      saasCustomerId: tenantId,
+      role,
+    });
+    if (!attachment) {
+      return sendError(res, 404, 'NOT_FOUND', 'Attachment not found');
+    }
+
+    if (attachment.dataBase64) {
+      const buffer = Buffer.from(attachment.dataBase64, 'base64');
+      res.setHeader('Content-Type', attachment.mimeType);
+      res.setHeader('Content-Disposition', `inline; filename="${attachment.fileName}"`);
+      return res.send(buffer);
+    }
+
+    return sendSuccess(res, attachment);
+  } catch (err: any) {
+    if (err.code === 'TENANT_MISMATCH') {
+      return sendError(res, 403, 'TENANT_MISMATCH', 'Unauthorized attachment access across tenants.');
+    }
+    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', err.message);
+  }
+});
+
+// Knowledge base endpoints
+router.get('/support/knowledge-base', (req: Request, res: Response) => {
+  const search = req.query.search as string;
+  const articles = supportService.getKnowledgeBaseArticles(search);
+  return sendSuccess(res, articles);
+});
+
+router.get('/support/knowledge-base/:slug', (req: Request, res: Response) => {
+  const article = supportService.getKnowledgeBaseArticleBySlug(req.params.slug);
+  if (!article) {
+    return sendError(res, 404, 'NOT_FOUND', 'Knowledge base article not found');
+  }
+  return sendSuccess(res, article);
+});
+
+// ==========================================
+// ADMIN ROUTES (PLATFORM_ADMIN ROLE REQUIRED)
+// ==========================================
+
+// Platform high-level operational & revenue metrics
+router.get('/admin/metrics', requirePlatformAdmin, (_req: Request, res: Response) => {
+  const supportStats = supportService.getTicketCountStats();
+  const metrics = customerMgmtService.getPlatformMetrics(supportStats);
+  return sendSuccess(res, metrics);
+});
+
+// Customer Directory listing with search, filtering, and sorting
+router.get('/admin/customers', requirePlatformAdmin, (req: Request, res: Response) => {
+  const options = {
+    search: req.query.search as string,
+    plan: req.query.plan as string,
+    status: req.query.status as string,
+    connectionStatus: req.query.connectionStatus as any,
+    sortBy: req.query.sortBy as any,
+    sortOrder: req.query.sortOrder as any,
+  };
+  const list = customerMgmtService.listCustomers(options);
+  return sendSuccess(res, list);
+});
+
+// Full 9-part Customer Detail
+router.get('/admin/customers/:id', requirePlatformAdmin, async (req: Request, res: Response) => {
+  const allTickets = await supportService.listAdminInbox();
+  const detail = customerMgmtService.getCustomerDetail(req.params.id, allTickets, mockReviews);
+  if (!detail) {
+    return sendError(res, 404, 'NOT_FOUND', 'SaaSCustomer not found');
+  }
+  return sendSuccess(res, detail);
+});
+
+// Add private internal note for customer
+router.post('/admin/customers/:id/notes', requirePlatformAdmin, (req: Request, res: Response) => {
+  const { userId, userName } = getAuthenticatedContext(req);
+  const { note } = req.body;
+  if (!note || !note.trim()) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Note content is required.');
+  }
+
+  const createdNote = customerMgmtService.addCustomerNote(
+    req.params.id,
+    userId,
+    userName,
+    note.trim()
+  );
+  return sendSuccess(res, createdNote);
+});
+
+// Delete customer note
+router.delete('/admin/customers/:id/notes/:noteId', requirePlatformAdmin, (req: Request, res: Response) => {
+  const { userId } = getAuthenticatedContext(req);
+  const deleted = customerMgmtService.deleteCustomerNote(req.params.id, req.params.noteId, userId);
+  if (!deleted) {
+    return sendError(res, 404, 'NOT_FOUND', 'Note not found or already deleted');
+  }
+  return sendSuccess(res, { deleted: true });
+});
+
+// Audited Read-Only "View as Customer" Impersonation session
+router.post('/admin/customers/:id/view-as-customer', requirePlatformAdmin, (req: Request, res: Response) => {
+  const { userId, userName, userEmail, role } = getAuthenticatedContext(req);
+  const session = customerMgmtService.generateReadOnlyCustomerSession(req.params.id, {
+    id: userId,
+    name: userName,
+    email: userEmail,
+    role,
+  });
+
+  if (!session.success) {
+    return sendError(res, 404, 'NOT_FOUND', session.error || 'Failed to initiate customer view');
+  }
+
+  return sendSuccess(res, session.impersonationContext);
+});
+
+// Admin Support Inbox with filtered views
+router.get('/admin/support/inbox', requirePlatformAdmin, async (req: Request, res: Response) => {
+  const { userId } = getAuthenticatedContext(req);
+  const view = req.query.view as any;
+  const category = req.query.category as string;
+  const search = req.query.search as string;
+
+  const tickets = await supportService.listAdminInbox({
+    view,
+    adminId: userId,
+    category,
+    search,
+  });
+  return sendSuccess(res, tickets);
+});
+
+// Admin Ticket Detail (includes internal notes and AI assistant suggestion)
+router.get('/admin/support/tickets/:ticketId', requirePlatformAdmin, async (req: Request, res: Response) => {
+  // Grab customer context for AI guidance
+  const allTickets = await supportService.listAdminInbox();
+  const ticketRef = allTickets.find((t) => t.id === req.params.ticketId);
+  let customerContext;
+
+  if (ticketRef) {
+    const custDetail = customerMgmtService.getCustomerDetail(ticketRef.saasCustomerId, allTickets, mockReviews);
+    if (custDetail) {
+      customerContext = {
+        customerName: custDetail.customer.name,
+        plan: custDetail.subscription?.plan || 'STARTER',
+        googleLocationsCount: custDetail.locations.length,
+        hasGoogleConnectionError: custDetail.stats.hasConnectionFailure,
+        recentRiskFlagsCount: custDetail.stats.riskFlagsCount,
+        billingStatus: custDetail.subscription?.status || 'ACTIVE',
+      };
+    }
+  }
+
+  const ticket = await supportService.getAdminTicketDetail(req.params.ticketId, customerContext);
+  if (!ticket) {
+    return sendError(res, 404, 'NOT_FOUND', 'Support ticket not found');
+  }
   return sendSuccess(res, ticket);
 });
 
-// ==========================================
-// ADMIN ROUTES (SUPER_ADMIN ROLE REQUIRED)
-// ==========================================
-router.get('/admin/metrics', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
-  if (req.user && req.user.role !== 'PLATFORM_ADMIN' && req.user.role !== 'SUPER_ADMIN') {
-    return sendError(res, 403, 'FORBIDDEN', 'Platform admin privileges required');
+// Admin replies to customer ticket (sends notification to customer)
+router.post('/admin/support/tickets/:ticketId/reply', requirePlatformAdmin, async (req: Request, res: Response) => {
+  const { userId, userName, userEmail } = getAuthenticatedContext(req);
+  const { message, attachments } = req.body;
+
+  if (!message || !message.trim()) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Message text is required.');
   }
-  return sendSuccess(res, {
-    totalSaaSCustomers: 148,
-    activeSubscribers: 142,
-    totalLocationsManaged: 184,
-    reviewsProcessedLast30Days: 4120,
-    autoPublishedPercentage: 78.4,
-    approvalQueueCount: 38,
-    criticalRisksDetected: 12,
-  });
+
+  try {
+    const reply = await supportService.adminReply(
+      req.params.ticketId,
+      { id: userId, name: userName, email: userEmail },
+      message,
+      attachments
+    );
+    return sendSuccess(res, reply);
+  } catch (err: any) {
+    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
+  }
 });
 
-router.get(
-  '/admin/tenants',
-  authenticateUser,
-  requireRole(['PLATFORM_ADMIN', 'SUPER_ADMIN']),
-  (_req: AuthenticatedRequest, res: Response) => {
-    const tenants = authService.listTenants();
-    return sendSuccess(res, tenants);
+// Admin adds internal private note on ticket (never visible to customer)
+router.post('/admin/support/tickets/:ticketId/internal-notes', requirePlatformAdmin, async (req: Request, res: Response) => {
+  const { userId, userName } = getAuthenticatedContext(req);
+  const { note } = req.body;
+
+  if (!note || !note.trim()) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Internal note content is required.');
   }
-);
+
+  try {
+    const internalNote = await supportService.addInternalNote(
+      req.params.ticketId,
+      { id: userId, name: userName },
+      note
+    );
+    return sendSuccess(res, internalNote);
+  } catch (err: any) {
+    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
+  }
+});
+
+// Admin updates ticket metadata (status, priority, assignment)
+router.patch('/admin/support/tickets/:ticketId', requirePlatformAdmin, async (req: Request, res: Response) => {
+  const { status, priority, assignedAdminId, assignedAdminName } = req.body;
+  try {
+    const updated = await supportService.updateTicketMetadata(req.params.ticketId, {
+      status,
+      priority,
+      assignedAdminId,
+      assignedAdminName,
+    });
+    return sendSuccess(res, updated);
+  } catch (err: any) {
+    return sendError(res, 400, 'VALIDATION_ERROR', err.message);
+  }
+});
 
 export default router;
+

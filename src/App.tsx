@@ -304,31 +304,78 @@ export default function App() {
 
   const pendingApprovalsCount = reviews.filter((r) => r.reply?.status === 'PENDING_APPROVAL').length;
 
+  const [impersonatedCustomer, setImpersonatedCustomer] = useState<{
+    customerId: string;
+    customerName: string;
+  } | null>(null);
+
+  const handleInitiateImpersonation = async (customerId: string) => {
+    try {
+      const res = await fetch(`/api/admin/customers/${customerId}/view-as-customer`, {
+        method: 'POST',
+        headers: { 'x-user-role': 'PLATFORM_ADMIN' },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          setImpersonatedCustomer({
+            customerId,
+            customerName: json.data.targetCustomer.name,
+          });
+          setIsAdminView(false);
+          setCurrentTab('dashboard');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to initiate customer impersonation:', err);
+    }
+  };
+
+  const handleExitImpersonation = () => {
+    setImpersonatedCustomer(null);
+    setIsAdminView(true);
+  };
+
   if (isAdminView) {
     return (
-      <div>
-        <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex justify-between items-center text-xs text-slate-300">
-          <span>Switched to Super Admin Context (Role: SUPER_ADMIN)</span>
-          <button
-            onClick={() => setIsAdminView(false)}
-            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white font-medium"
-          >
-            &larr; Return to SaaSCustomer Dashboard
-          </button>
-        </div>
-        <AdminDashboardPage />
-      </div>
+      <AdminDashboardPage
+        onExitAdmin={() => setIsAdminView(false)}
+        onViewAsCustomer={handleInitiateImpersonation}
+      />
     );
   }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+      {/* Impersonation Warning Banner */}
+      {impersonatedCustomer && (
+        <div className="bg-amber-500 text-slate-950 px-4 py-2.5 font-medium text-xs flex flex-wrap items-center justify-between gap-2 shadow-md sticky top-0 z-50">
+          <div className="flex items-center gap-2">
+            <span className="bg-slate-950 text-amber-400 font-bold px-2 py-0.5 rounded text-[10px] uppercase tracking-wider">
+              Read-Only Impersonation
+            </span>
+            <span>
+              Viewing tenant <strong>{impersonatedCustomer.customerName}</strong> ({impersonatedCustomer.customerId}) as Platform Administrator. Modifications disabled. All access is audit logged.
+            </span>
+          </div>
+          <button
+            onClick={handleExitImpersonation}
+            className="px-3 py-1 bg-slate-950 hover:bg-slate-900 text-amber-300 font-semibold rounded-lg text-xs transition"
+          >
+            Exit Impersonation & Return to Admin
+          </button>
+        </div>
+      )}
+
       <Navbar
         currentTab={currentTab}
         onTabChange={(t) => setCurrentTab(t as any)}
         pendingCount={pendingApprovalsCount}
-        locationName={location.locationName}
-        onOpenAdmin={() => setIsAdminView(true)}
+        locationName={impersonatedCustomer ? impersonatedCustomer.customerName : location.locationName}
+        onOpenAdmin={() => {
+          setImpersonatedCustomer(null);
+          setIsAdminView(true);
+        }}
         isAdminView={isAdminView}
       />
 

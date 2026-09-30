@@ -19,11 +19,9 @@ export function checkForbiddenInventions(generatedText: string): {
   const lower = generatedText.toLowerCase();
 
   for (const forbidden of FORBIDDEN_AI_INVENTIONS) {
-    // Check if forbidden term or variation appears (including singular/plural)
-    const base = forbidden
-      .replace(/s$/, '')
-      .replace('actions not present in trusted context', 'guarantee');
-    const regex = new RegExp(`\\b${base}(s|es)?\\b`, 'i');
+    // Check if forbidden term or variation appears (stem matching handles singular/plural)
+    const stem = forbidden.endsWith('s') ? forbidden.slice(0, -1) : forbidden;
+    const regex = new RegExp(`\\b${stem.replace('actions not present in trusted context', 'guarantee')}\\w*\\b`, 'i');
     if (regex.test(lower)) {
       violations.push(forbidden);
     }

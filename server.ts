@@ -11,13 +11,7 @@ async function startServer() {
   const PORT = parseInt(process.env.PORT || '3000', 10);
   const isProduction = process.env.NODE_ENV === 'production';
 
-  app.use(
-    express.json({
-      verify: (req: any, _res, buf) => {
-        req.rawBody = buf;
-      },
-    })
-  );
+  app.use(express.json());
 
   // Mount API Gateway routes
   app.use('/api', apiRouter);

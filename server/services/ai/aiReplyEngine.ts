@@ -156,12 +156,10 @@ CONSTRAINTS:
 
   private sanitizeDraft(draft: string): string {
     let sanitized = draft.trim();
-    // Safety check for forbidden words (singular and plural)
+    // Safety check for forbidden words (matching stems for singular/plural)
     for (const forbidden of FORBIDDEN_AI_INVENTIONS) {
-      const base = forbidden
-        .replace(/s$/, '')
-        .replace('actions not present in trusted context', 'guarantee');
-      const regex = new RegExp(`\\b${base}(s|es)?\\b`, 'gi');
+      const stem = forbidden.endsWith('s') ? forbidden.slice(0, -1) : forbidden;
+      const regex = new RegExp(`\\b${stem}\\w*\\b`, 'gi');
       if (regex.test(sanitized)) {
         // Strip or replace unsafe sentence
         sanitized = sanitized.replace(regex, '[redacted]');

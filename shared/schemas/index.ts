@@ -34,31 +34,41 @@ export interface ReviewFilterQuery {
   pageSize?: number;
 }
 
-export interface SignupPayload {
-  email: string;
-  password: string;
-  name: string;
-  businessName: string;
+export interface CreateTicketPayload {
+  subject: string;
+  category: 'GOOGLE_CONNECTION' | 'REVIEW_REPLY' | 'AUTOMATION' | 'BILLING' | 'ACCOUNT' | 'BUG' | 'OTHER';
+  priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+  message: string;
+  attachments?: Array<{
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    dataBase64?: string;
+  }>;
 }
 
-export interface LoginPayload {
-  email: string;
-  password: string;
+export interface ReplyTicketPayload {
+  message: string;
+  attachments?: Array<{
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    dataBase64?: string;
+  }>;
 }
 
-export interface InviteMemberPayload {
-  email: string;
-  name: string;
-  role?: 'CUSTOMER_MEMBER' | 'MEMBER';
+export interface AddInternalNotePayload {
+  note: string;
 }
 
-export interface CreateCheckoutSessionPayload {
-  plan: 'PRO' | 'STARTER' | 'GROWTH' | 'ENTERPRISE';
-  returnUrl?: string;
-  idempotencyKey?: string;
+export interface UpdateTicketStatusPayload {
+  status?: 'OPEN' | 'IN_PROGRESS' | 'WAITING_FOR_CUSTOMER' | 'WAITING_ON_CUSTOMER' | 'RESOLVED' | 'CLOSED';
+  priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+  assignedAdminId?: string;
+  assignedAdminName?: string;
 }
 
-export interface CancelSubscriptionPayload {
-  cancelAtPeriodEnd?: boolean;
-  reason?: string;
+export interface AddCustomerNotePayload {
+  note: string;
 }
+
