@@ -19,72 +19,66 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
-  createdAt: string;
-  lastLoginAt?: string;
-  // Tenant & profile links (backward-compatibility)
-  saasCustomerId?: string;
+  saasCustomerId: string;
   avatarUrl?: string;
-  emailVerified?: boolean;
-  updatedAt?: string;
+  emailVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export type SaaSCustomerStatus = 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
+export type SubscriptionPlan = 'STARTER' | 'GROWTH' | 'PRO' | 'ENTERPRISE';
+export type SubscriptionStatus = 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'INCOMPLETE';
+
+export interface Subscription {
+  id: string;
+  saasCustomerId: string;
+  plan: SubscriptionPlan;
+  status: SubscriptionStatus;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  locationLimit: number;
+  monthlyReplyLimit: number;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface SaaSCustomer {
   id: string;
-  ownerUserId?: string;
-  businessName?: string;
-  contactName?: string;
-  email?: string;
-  phone?: string;
-  industry?: string;
-  status: SaaSCustomerStatus;
-  notes?: string;
+  name: string;
+  billingEmail: string;
+  subscriptionId?: string;
+  status: 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
   createdAt: string;
   updatedAt: string;
-  // Compatibility aliases
-  name?: string;
-  billingEmail?: string;
-  subscriptionId?: string;
 }
 
 export interface Business {
   id: string;
   saasCustomerId: string;
   name: string;
-  category?: string;
-  timezone?: string;
-  // Compatibility fields
   industryCategory?: string;
   websiteUrl?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
-
-export interface BusinessAddress {
-  addressLines: string[];
-  locality: string;
-  administrativeArea: string;
-  postalCode: string;
-  country: string;
-}
-
-export type LocationConnectionStatus = 'CONNECTED' | 'DISCONNECTED' | 'PENDING' | 'ERROR';
 
 export interface BusinessLocation {
   id: string;
   businessId: string;
-  googleAccountId?: string;
-  googleLocationId: string;
-  displayName?: string;
-  address: BusinessAddress;
-  timezone?: string;
-  connectionStatus?: LocationConnectionStatus;
-  lastSyncAt?: string;
-  // Tenant & operational fields (backward-compatibility)
   saasCustomerId: string;
+  googleLocationId: string;
   googlePlaceId?: string;
   locationName: string;
+  address: {
+    addressLines: string[];
+    locality: string;
+    administrativeArea: string;
+    postalCode: string;
+    country: string;
+  };
   primaryPhone?: string;
   primaryCategory?: string;
   isConnected: boolean;
@@ -95,24 +89,18 @@ export interface BusinessLocation {
   updatedAt: string;
 }
 
-export type GoogleConnectionStatus = 'CONNECTED' | 'DISCONNECTED' | 'TOKEN_EXPIRED' | 'PERMISSION_REVOKED';
-
 export interface GoogleConnection {
   id: string;
   saasCustomerId: string;
-  provider?: 'GOOGLE_BUSINESS_PROFILE';
-  encryptedTokenReference?: string;
+  businessLocationId: string;
+  googleAccountId: string;
+  googleLocationName: string;
+  tokenExpiry: string;
   scopes: string[];
-  status: GoogleConnectionStatus;
-  expiresAt?: string;
+  status: 'CONNECTED' | 'DISCONNECTED' | 'TOKEN_EXPIRED' | 'PERMISSION_REVOKED';
+  lastSyncedAt?: string;
   createdAt: string;
   updatedAt: string;
-  // Compatibility fields
-  businessLocationId?: string;
-  googleAccountId?: string;
-  googleLocationName?: string;
-  tokenExpiry?: string;
-  lastSyncedAt?: string;
 }
 
 export interface ReviewAuthor {
@@ -124,8 +112,6 @@ export interface ReviewAuthor {
 export type StarRating = 1 | 2 | 3 | 4 | 5;
 
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-
-export type ReviewSentiment = 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE';
 
 export interface RiskAssessment {
   riskLevel: RiskLevel;
@@ -143,6 +129,23 @@ export interface RiskAssessment {
   explanation: string;
   confidenceScore: number;
   recommendedAction: ReplyDecisionAction;
+}
+
+export interface Review {
+  id: string;
+  saasCustomerId: string;
+  businessLocationId: string;
+  googleReviewId: string;
+  googleReviewName: string; // e.g. "accounts/X/locations/Y/reviews/Z"
+  author: ReviewAuthor;
+  starRating: StarRating;
+  comment?: string;
+  reviewCreatedAt: string;
+  reviewUpdatedAt?: string;
+  riskAssessment?: RiskAssessment;
+  replyId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type ApprovalStatus =
@@ -173,137 +176,6 @@ export interface ReviewReply {
   updatedAt: string;
 }
 
-export interface Review {
-  id: string;
-  businessLocationId: string;
-  saasCustomerId: string;
-  googleReviewName: string;
-  provider?: 'GOOGLE';
-  providerReviewId?: string;
-  rating?: StarRating;
-  authorName?: string;
-  reviewText?: string;
-  reviewCreatedAt: string;
-  replyText?: string;
-  replyStatus?: ApprovalStatus;
-  sentiment?: ReviewSentiment;
-  riskLevel?: RiskLevel;
-  suggestedAction?: ReplyDecisionAction;
-  createdAt: string;
-  updatedAt: string;
-  // Tenant & operational backward-compatibility
-  googleReviewId?: string;
-  author: ReviewAuthor;
-  starRating: StarRating;
-  comment?: string;
-  reviewUpdatedAt?: string;
-  riskAssessment?: RiskAssessment;
-  replyId?: string;
-  reply?: ReviewReply;
-}
-
-export type SupportTicketCategory =
-  | 'BILLING'
-  | 'TECHNICAL'
-  | 'GOOGLE_INTEGRATION'
-  | 'AI_REPLIES'
-  | 'GENERAL';
-
-export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING_ON_CUSTOMER' | 'RESOLVED' | 'CLOSED';
-export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
-
-export interface SupportTicket {
-  id: string;
-  saasCustomerId: string;
-  subject: string;
-  category?: SupportTicketCategory;
-  priority: TicketPriority;
-  status: TicketStatus;
-  assignedAdminId?: string;
-  createdAt: string;
-  updatedAt: string;
-  // Compatibility fields
-  createdByUserEmail?: string;
-  assignedSupportAgentId?: string;
-}
-
-export type SupportSenderType = 'SAAS_CUSTOMER' | 'SUPPORT_AGENT' | 'SYSTEM' | 'ADMIN';
-
-export interface SupportMessage {
-  id: string;
-  supportTicketId?: string;
-  senderType: SupportSenderType;
-  senderId?: string;
-  body?: string;
-  attachmentReferences?: string[];
-  createdAt: string;
-  // Compatibility fields
-  ticketId?: string;
-  senderUserId?: string;
-  senderName?: string;
-  message?: string;
-}
-
-export type SubscriptionPlan = 'STARTER' | 'GROWTH' | 'PRO' | 'ENTERPRISE';
-export type SubscriptionStatus = 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'INCOMPLETE';
-
-export interface Subscription {
-  id: string;
-  saasCustomerId: string;
-  plan: SubscriptionPlan;
-  status: SubscriptionStatus;
-  providerCustomerId?: string;
-  providerSubscriptionId?: string;
-  currentPeriodStart: string;
-  currentPeriodEnd: string;
-  cancelAtPeriodEnd: boolean;
-  // Limits & compatibility fields
-  locationLimit?: number;
-  monthlyReplyLimit?: number;
-  stripeCustomerId?: string;
-  stripeSubscriptionId?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export type UsageEventType =
-  | 'REVIEW_FETCHED'
-  | 'AI_REPLY_GENERATED'
-  | 'REPLY_AUTO_PUBLISHED'
-  | 'REPLY_MANUALLY_PUBLISHED'
-  | 'RISK_DETECTED_CRITICAL';
-
-export interface UsageEvent {
-  id: string;
-  saasCustomerId: string;
-  type: UsageEventType | string;
-  quantity: number;
-  createdAt: string;
-  // Compatibility fields
-  businessLocationId?: string;
-  eventType?: UsageEventType;
-  metadata?: Record<string, unknown>;
-  timestamp?: string;
-}
-
-export interface AuditEvent {
-  id: string;
-  saasCustomerId: string;
-  actorType: 'USER' | 'SYSTEM_JOB' | 'ADMIN' | 'GOOGLE_WEBHOOK';
-  actorId: string;
-  eventType: string;
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-  // Compatibility fields
-  actorUserId?: string;
-  action?: string;
-  targetResourceType?: 'REVIEW' | 'REPLY' | 'LOCATION' | 'AUTOMATION_RULE' | 'CONNECTION' | 'SUBSCRIPTION';
-  targetResourceId?: string;
-  details?: Record<string, unknown>;
-  ipAddress?: string;
-  timestamp?: string;
-}
-
 export interface AutomationRule {
   id: string;
   saasCustomerId: string;
@@ -332,6 +204,22 @@ export interface BrandVoice {
   updatedAt: string;
 }
 
+export type UsageEventType =
+  | 'REVIEW_FETCHED'
+  | 'AI_REPLY_GENERATED'
+  | 'REPLY_AUTO_PUBLISHED'
+  | 'REPLY_MANUALLY_PUBLISHED'
+  | 'RISK_DETECTED_CRITICAL';
+
+export interface UsageEvent {
+  id: string;
+  saasCustomerId: string;
+  businessLocationId?: string;
+  eventType: UsageEventType;
+  metadata?: Record<string, unknown>;
+  timestamp: string;
+}
+
 export type NotificationChannel = 'EMAIL' | 'IN_APP';
 export type NotificationType =
   | 'APPROVAL_REQUIRED'
@@ -352,4 +240,42 @@ export interface Notification {
   linkUrl?: string;
   metadata?: Record<string, unknown>;
   createdAt: string;
+}
+
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING_ON_CUSTOMER' | 'RESOLVED' | 'CLOSED';
+export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+
+export interface SupportTicket {
+  id: string;
+  saasCustomerId: string;
+  createdByUserEmail: string;
+  subject: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  assignedSupportAgentId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupportMessage {
+  id: string;
+  ticketId: string;
+  senderType: 'SAAS_CUSTOMER' | 'SUPPORT_AGENT' | 'SYSTEM';
+  senderUserId?: string;
+  senderName: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface AuditEvent {
+  id: string;
+  saasCustomerId: string;
+  actorUserId?: string;
+  actorType: 'USER' | 'SYSTEM_JOB' | 'ADMIN' | 'GOOGLE_WEBHOOK';
+  action: string;
+  targetResourceType: 'REVIEW' | 'REPLY' | 'LOCATION' | 'AUTOMATION_RULE' | 'CONNECTION' | 'SUBSCRIPTION';
+  targetResourceId: string;
+  details?: Record<string, unknown>;
+  ipAddress?: string;
+  timestamp: string;
 }

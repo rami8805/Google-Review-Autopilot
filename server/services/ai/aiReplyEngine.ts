@@ -24,12 +24,16 @@ export class GeminiAiReplyEngine implements IAiReplyEngine {
   private aiClient: GoogleGenAI | null = null;
   private modelName: string;
 
-  constructor(apiKey?: string, modelName = 'gemini-2.5-flash') {
+  constructor(apiKey?: string, modelName?: string) {
     const key = apiKey || process.env.GEMINI_API_KEY;
     if (key && key !== 'MY_GEMINI_API_KEY') {
-      this.aiClient = new GoogleGenAI({ apiKey: key });
+      try {
+        this.aiClient = new GoogleGenAI({ apiKey: key });
+      } catch (err) {
+        console.warn('Unable to initialize GoogleGenAI with key:', err);
+      }
     }
-    this.modelName = modelName;
+    this.modelName = modelName || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   }
 
   async assessRisk(reviewText: string, rating: number): Promise<RiskAssessment> {
