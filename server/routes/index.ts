@@ -15,6 +15,8 @@ import { GeminiAiReplyEngine } from '../services/ai/aiReplyEngine';
 import { GoogleBusinessProfileService } from '../services/google/googleProfileProvider';
 import { BillingService } from '../services/billing/billingService';
 import { SupportService } from '../services/support/supportService';
+import { googleRouter } from './google';
+import { reviewSyncJob } from '../jobs/reviewSyncJob';
 
 const router = Router();
 
@@ -243,35 +245,37 @@ router.get('/auth/me', (_req: Request, res: Response) => {
 // ==========================================
 // GOOGLE CONNECTION & LOCATION ROUTES
 // ==========================================
-router.get('/google/connect', async (_req: Request, res: Response) => {
-  const url = await googleService.getAuthorizationUrl('state_demo');
-  return sendSuccess(res, { authUrl: url });
-});
-
-router.get('/google/locations', (_req: Request, res: Response) => {
-  return sendSuccess(res, [mockLocation]);
-});
-
-router.post('/google/sync-reviews', async (_req: Request, res: Response) => {
-  return sendSuccess(res, {
-    syncedLocationId: mockLocation.id,
-    newReviewsFound: 0,
-    timestamp: new Date().toISOString(),
-  });
-});
+router.use('/google', googleRouter);
 
 // ==========================================
 // REVIEWS & REPLIES ROUTES
 // ==========================================
 router.get('/reviews', (_req: Request, res: Response) => {
-  const fullReviews = mockReviews.map((rev) => ({
-    ...rev,
-    reply: rev.replyId ? mockReplies[rev.replyId] : undefined,
-  }));
-  return sendSuccess(res, fullReviews);
+  const syncedReviews = reviewSyncJob.getAllReviews(mockSaaSCustomerId);
+  const reviewMap = new Map<string, Review & { reply?: ReviewReply }>();
+
+  // Include base mock reviews
+  for (const rev of mockReviews) {
+    reviewMap.set(rev.id, {
+      ...rev,
+      reply: rev.replyId ? mockReplies[rev.replyId] : undefined,
+    });
+  }
+
+  // Overlay synced reviews from reviewSyncJob
+  for (const rev of syncedReviews) {
+    reviewMap.set(rev.id, rev);
+  }
+
+  return sendSuccess(res, Array.from(reviewMap.values()));
 });
 
 router.get('/reviews/:id', (req: Request, res: Response) => {
+  const synced = reviewSyncJob.getReviewById(req.params.id);
+  if (synced) {
+    return sendSuccess(res, synced);
+  }
+
   const review = mockReviews.find((r) => r.id === req.params.id);
   if (!review) {
     return sendError(res, 404, 'NOT_FOUND', 'Review not found');
@@ -281,12 +285,19 @@ router.get('/reviews/:id', (req: Request, res: Response) => {
 });
 
 router.post('/reviews/:id/approve', async (req: Request, res: Response) => {
-  const review = mockReviews.find((r) => r.id === req.params.id);
+  let review = mockReviews.find((r) => r.id === req.params.id);
+  let reply = review?.replyId ? mockReplies[review.replyId] : undefined;
+
+  const synced = reviewSyncJob.getReviewById(req.params.id);
+  if (synced) {
+    review = synced;
+    reply = synced.reply;
+  }
+
   if (!review) {
     return sendError(res, 404, 'NOT_FOUND', 'Review not found');
   }
 
-  const reply = review.replyId ? mockReplies[review.replyId] : undefined;
   if (!reply) {
     return sendError(res, 404, 'NOT_FOUND', 'Reply draft not found for review');
   }
@@ -295,12 +306,16 @@ router.post('/reviews/:id/approve', async (req: Request, res: Response) => {
   const textToPublish = editedReplyText || reply.proposedText;
 
   // Publish via Google adapter
-  await googleService.publishReviewReply('mock_access_token', review.googleReviewName, textToPublish);
+  await googleService.publishReply(mockSaaSCustomerId, review.googleReviewName, textToPublish);
 
   reply.status = 'MANUALLY_PUBLISHED';
   reply.publishedText = textToPublish;
   reply.publishedAt = new Date().toISOString();
   reply.reviewedAt = new Date().toISOString();
+
+  if (synced) {
+    reviewSyncJob.updateReviewReply(review.id, reply);
+  }
 
   return sendSuccess(res, { review, reply });
 });

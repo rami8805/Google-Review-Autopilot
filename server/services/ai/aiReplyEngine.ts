@@ -24,16 +24,12 @@ export class GeminiAiReplyEngine implements IAiReplyEngine {
   private aiClient: GoogleGenAI | null = null;
   private modelName: string;
 
-  constructor(apiKey?: string, modelName?: string) {
+  constructor(apiKey?: string, modelName = 'gemini-2.5-flash') {
     const key = apiKey || process.env.GEMINI_API_KEY;
     if (key && key !== 'MY_GEMINI_API_KEY') {
-      try {
-        this.aiClient = new GoogleGenAI({ apiKey: key });
-      } catch (err) {
-        console.warn('Unable to initialize GoogleGenAI with key:', err);
-      }
+      this.aiClient = new GoogleGenAI({ apiKey: key });
     }
-    this.modelName = modelName || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    this.modelName = process.env.GEMINI_MODEL || modelName;
   }
 
   async assessRisk(reviewText: string, rating: number): Promise<RiskAssessment> {
@@ -160,9 +156,10 @@ CONSTRAINTS:
 
   private sanitizeDraft(draft: string): string {
     let sanitized = draft.trim();
-    // Safety check for forbidden words
+    // Safety check for forbidden words (singular & plural)
     for (const forbidden of FORBIDDEN_AI_INVENTIONS) {
-      const regex = new RegExp(`\\b${forbidden}\\b`, 'gi');
+      const stem = forbidden.endsWith('s') && forbidden !== 'compensation' ? forbidden.slice(0, -1) : forbidden;
+      const regex = new RegExp(`\\b${stem}(s)?\\b`, 'gi');
       if (regex.test(sanitized)) {
         // Strip or replace unsafe sentence
         sanitized = sanitized.replace(regex, '[redacted]');
