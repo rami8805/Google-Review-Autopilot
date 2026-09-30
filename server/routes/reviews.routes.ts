@@ -90,10 +90,52 @@ router.post('/:id/approve', async (req: AuthenticatedRequest, res) => {
   }
 
   const { editedReplyText } = req.body || {};
-  const textToPublish = editedReplyText || reply.proposedText;
+  const textToPublish = typeof editedReplyText === 'string' && editedReplyText.trim()
+    ? editedReplyText.trim()
+    : reply.proposedText;
 
-  // Publish via Google Provider Adapter
-  await googleService.publishReviewReply('mock_access_token', review.googleReviewName, textToPublish);
+  // Re-run Reply Guard immediately before publication so edited client text
+  // cannot bypass the safety layer.
+  const brandVoice = await brandVoiceRepo.getByTenant(tenantId);
+  const rules = await ruleRepo.listByTenant(tenantId);
+  const recentReplies = await replyRepo.listRecentByLocation(tenantId, review.businessLocationId, 5);
+  const guardResult = await replyGuard.validateReply({
+    review,
+    generatedReply: textToPublish,
+    businessContext: brandVoice?.trustedBusinessContext,
+    brandVoice: brandVoice || undefined,
+    recentReplies: recentReplies.map((r) => ({
+      proposedText: r.proposedText,
+      publishedText: r.publishedText,
+    })),
+    automationRules: rules,
+    regenerationAttempts: 1,
+  });
+
+  if (guardResult.decision === 'BLOCK' || guardResult.decision === 'BLOCK_AND_REGENERATE') {
+    res.status(422).json({
+      success: false,
+      error: {
+        code: 'REPLY_GUARD_BLOCKED',
+        message: 'Reply cannot be published until it passes the safety checks.',
+        decision: guardResult.decision,
+        risk: guardResult.overallRisk,
+      },
+    });
+    return;
+  }
+
+  // Never accept a client-supplied Google access token and never fall back to
+  // a mock credential. Until the OAuth connection repository exposes a
+  // server-side access token, publication fails closed.
+  res.status(503).json({
+    success: false,
+    error: {
+      code: 'GOOGLE_CONNECTION_UNAVAILABLE',
+      message: 'Google publication is unavailable until a server-side OAuth connection is configured.',
+    },
+  });
+  return;
 
   const updatedReply = await replyRepo.update(tenantId, reply.id, {
     status: 'MANUALLY_PUBLISHED',
