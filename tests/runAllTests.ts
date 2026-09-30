@@ -2,6 +2,7 @@ import { runAutomationRulesTests } from './rules/automationRules.test';
 import { runSafetyTests } from './safety/injectionDefense.test';
 import { runIntegrationTests } from './integration/endToEndJourney.test';
 import { runReplyGuardTests } from './guard/replyGuard.test';
+import { runProductionTests } from './production/productionJourney.test';
 
 async function main() {
   console.log('--- RUNNING AUTOMATION RULE ENGINE TESTS ---');
@@ -24,10 +25,15 @@ async function main() {
   guardResults.results.forEach((r) => console.log(r));
   console.log(`Summary: ${guardResults.passed} passed, ${guardResults.failed} failed.\n`);
 
+  console.log('--- RUNNING PRODUCTION ARCHITECTURE, AUTH, TENANT & PADDLE TESTS ---');
+  const productionResults = await runProductionTests();
+  productionResults.results.forEach((r) => console.log(r));
+  console.log(`Summary: ${productionResults.passed} passed, ${productionResults.failed} failed.\n`);
+
   const totalPassed =
-    ruleResults.passed + safetyResults.passed + integrationResults.passed + guardResults.passed;
+    ruleResults.passed + safetyResults.passed + integrationResults.passed + guardResults.passed + productionResults.passed;
   const totalFailed =
-    ruleResults.failed + safetyResults.failed + integrationResults.failed + guardResults.failed;
+    ruleResults.failed + safetyResults.failed + integrationResults.failed + guardResults.failed + productionResults.failed;
   const totalTests = totalPassed + totalFailed;
 
   if (totalFailed > 0) {

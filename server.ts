@@ -1,12 +1,23 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import apiRouter from './server/routes/index';
+import { spawn } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
+  if (!process.env.TSX_BOOTSTRAPPED && !process.execArgv.some(arg => arg.includes('tsx'))) {
+    const child = spawn(process.execPath, ['--import', 'tsx', ...process.argv.slice(1)], {
+      stdio: 'inherit',
+      env: { ...process.env, TSX_BOOTSTRAPPED: 'true' },
+    });
+    child.on('exit', (code) => process.exit(code ?? 0));
+    await new Promise(() => {});
+    return;
+  }
+
+  const { default: apiRouter } = await import('./server/routes/index');
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
   const isProduction = process.env.NODE_ENV === 'production';

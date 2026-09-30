@@ -39,8 +39,8 @@ export interface Subscription {
   cancelAtPeriodEnd: boolean;
   locationLimit: number;
   monthlyReplyLimit: number;
-  stripeCustomerId?: string;
-  stripeSubscriptionId?: string;
+  paddleCustomerId?: string;
+  paddleSubscriptionId?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -99,7 +99,7 @@ export const SubscriptionPlanCard: React.FC<SubscriptionPlanCardProps> = ({
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3 text-xs text-amber-900 shadow-xs">
           <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
           <div>
-            <span className="font-bold">Payment Overdue:</span> Please update your credit card in the Stripe Customer Portal to avoid autopilot interruption.
+            <span className="font-bold">Payment Overdue:</span> Please update your payment method in the Paddle Customer Portal to avoid autopilot interruption.
           </div>
         </div>
       )}
@@ -145,7 +145,7 @@ export const SubscriptionPlanCard: React.FC<SubscriptionPlanCardProps> = ({
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <CreditCard className="w-4 h-4 text-slate-600" />
-          <span className="font-bold text-slate-800">Billing Lifecycle Tester (Stripe Sandbox):</span>
+          <span className="font-bold text-slate-800">Billing Lifecycle Tester (Paddle Sandbox):</span>
           <span className="text-slate-500">Test how app entitlements respond to state changes.</span>
         </div>
 
