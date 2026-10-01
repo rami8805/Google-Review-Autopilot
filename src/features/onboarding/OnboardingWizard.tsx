@@ -27,7 +27,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   onComplete,
   onCancel,
 }) => {
-  const { getAuthHeaders } = useAuth();
+  const { getAuthHeaders, token } = useAuth();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -84,7 +84,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     };
     void completeOAuth();
     return () => { cancelled = true; };
-  }, [getAuthHeaders]);
+  }, [token]);
 
   const handleConnectGoogle = async () => {
     setIsConnecting(true);
