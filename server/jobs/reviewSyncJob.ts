@@ -41,8 +41,9 @@ export class ReviewSyncJob {
     brandVoice: BrandVoice;
     rules?: AutomationRule[];
     recentReplies?: Array<{ proposedText: string; publishedText?: string }>;
+    accessToken?: string;
   }): Promise<{ reply: ReviewReply; result: IngestionResult }> {
-    const { review, brandVoice, rules, recentReplies = [] } = params;
+    const { review, brandVoice, rules, recentReplies = [], accessToken } = params;
 
     // Phase 1: Risk Assessment
     const riskAssessment = await this.aiEngine.assessRisk(review.comment || '', review.starRating);
@@ -116,7 +117,8 @@ export class ReviewSyncJob {
       guardResult.overallRisk === 'LOW' &&
       riskAssessment.riskLevel === 'LOW' &&
       matchingRule &&
-      matchingRule.action === 'AUTO_PUBLISH'
+      matchingRule.action === 'AUTO_PUBLISH' &&
+      Boolean(accessToken)
     ) {
       const currentRiskSeverity = RISK_LEVEL_SEVERITY[riskAssessment.riskLevel];
       const maxAllowedSeverity = RISK_LEVEL_SEVERITY[matchingRule.maxRiskLevelForAutoPublish];
@@ -146,12 +148,14 @@ export class ReviewSyncJob {
     if (isEligibleForAutoPublish) {
       try {
         await this.googleService.publishReviewReply(
-          'mock_access_token',
+          accessToken!,
           review.googleReviewName,
           proposedText
         );
       } catch (err) {
         reply.status = 'FAILED_TO_PUBLISH';
+        reply.publishedAt = undefined;
+        reply.publishedText = undefined;
         reply.publishErrorMessage = (err as Error).message;
       }
     } else {
@@ -167,7 +171,7 @@ export class ReviewSyncJob {
       reply,
       result: {
         reviewId: review.id,
-        actionTaken: isEligibleForAutoPublish ? 'AUTO_PUBLISHED' : 'STAGED_FOR_APPROVAL',
+        actionTaken: reply.status === 'AUTO_PUBLISHED' ? 'AUTO_PUBLISHED' : 'STAGED_FOR_APPROVAL',
         riskLevel: riskAssessment.riskLevel,
         guardDecision: guardResult.decision,
         customerExplanation: guardResult.customerExplanation,
