@@ -9,28 +9,19 @@ const tasksService = new CloudTasksService();
  * Checks for Cloud Tasks push headers and/or OIDC Bearer tokens.
  */
 function verifyCloudTasksOrigin(req: Request, res: Response, next: () => void) {
-  const isCloudTasksHeaderPresent =
-    Boolean(req.headers['x-cloudtasks-queuename']) ||
-    Boolean(req.headers['x-cloudtasks-taskname']);
+  const authHeader = req.headers.authorization;
+  const configuredSecret = process.env.CLOUD_TASKS_AUTH_TOKEN;
+  const isLocalTest = process.env.NODE_ENV !== 'production' &&
+    (process.env.NODE_ENV === 'test' || req.ip === '127.0.0.1' || req.ip === '::1');
+  const authorized = Boolean(configuredSecret && authHeader === `Bearer ${configuredSecret}`) || isLocalTest;
 
-  const authHeader = req.headers['authorization'];
-  const isDevToken =
-    authHeader === 'Bearer test_cloud_tasks_token' ||
-    process.env.NODE_ENV === 'test' ||
-    req.ip === '127.0.0.1' ||
-    req.ip === '::1';
-
-  if (!isCloudTasksHeaderPresent && !isDevToken) {
+  if (!authorized) {
     res.status(401).json({
       success: false,
-      error: {
-        code: 'UNAUTHORIZED_TASK_WORKER',
-        message: 'Request must originate from Google Cloud Tasks.',
-      },
+      error: { code: 'UNAUTHORIZED_TASK_WORKER', message: 'Authenticated Cloud Tasks worker request required.' },
     });
     return;
   }
-
   next();
 }
 
