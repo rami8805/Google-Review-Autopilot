@@ -9,6 +9,7 @@ import { DEFAULT_AUTOMATION_RULES, RISK_LEVEL_SEVERITY } from '../../shared/cons
 import { GeminiAiReplyEngine } from '../services/ai/aiReplyEngine';
 import { GoogleBusinessProfileService } from '../services/google/googleProfileProvider';
 import { NotificationService } from '../services/notifications/notificationService';
+import { GoogleConnectionRepository } from '../repositories/postgresRepositories.ts';
 import { ReplyGuardService } from '../services/workflow/replyGuardService';
 
 export interface IngestionResult {
@@ -25,12 +26,14 @@ export class ReviewSyncJob {
   private googleService: GoogleBusinessProfileService;
   private notificationService: NotificationService;
   private replyGuard: ReplyGuardService;
+  private googleRepo: GoogleConnectionRepository;
 
   constructor() {
     this.aiEngine = new GeminiAiReplyEngine();
     this.googleService = new GoogleBusinessProfileService();
     this.notificationService = new NotificationService();
     this.replyGuard = new ReplyGuardService();
+    this.googleRepo = new GoogleConnectionRepository();
   }
 
   /**
@@ -145,11 +148,17 @@ export class ReviewSyncJob {
 
     if (isEligibleForAutoPublish) {
       try {
-        await this.googleService.publishReviewReply(
-          'mock_access_token',
-          review.googleReviewName,
-          proposedText
-        );
+        let connection = await this.googleRepo.getDecryptedTokens(review.saasCustomerId, review.businessLocationId);
+        if (!connection?.accessToken) throw new Error('Google connection token unavailable; reconnect Google Business Profile');
+        if (connection.tokenExpiry && new Date(connection.tokenExpiry).getTime() <= Date.now() && connection.refreshToken) {
+          const refreshed = await this.googleService.refreshAccessToken(connection.refreshToken);
+          const stored = await this.googleRepo.getByLocationId(review.saasCustomerId, review.businessLocationId);
+          if (!stored) throw new Error('Google connection disappeared during token refresh');
+          const expiry = new Date(Date.now() + refreshed.expiresIn * 1000).toISOString();
+          await this.googleRepo.updateTokens(review.saasCustomerId, stored.id, refreshed.accessToken, undefined, expiry);
+          connection = { ...connection, accessToken: refreshed.accessToken, tokenExpiry: expiry };
+        }
+        await this.googleService.publishReviewReply(connection.accessToken, review.googleReviewName, proposedText);
       } catch (err) {
         reply.status = 'FAILED_TO_PUBLISH';
         reply.publishErrorMessage = (err as Error).message;

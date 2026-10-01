@@ -1,3 +1,5 @@
+> **Release-status note — 2026-10-01:** This file contains historical audit results from an earlier code state. It is superseded by the current production-readiness PR and must not be treated as proof that the current branch passed all gates. Current validation is delegated to GitHub CI (typecheck, tests, build, Docker build).
+
 # Final Release Integration & Quality Audit Report
 
 **Application**: Google Review Autopilot  

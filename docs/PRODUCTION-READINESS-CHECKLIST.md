@@ -1,3 +1,5 @@
+> **Validation status — 2026-10-01:** The checklist describes required gates. Because the execution environment could not reach GitHub to install dependencies, current-branch validation is intentionally not claimed here; see the CI workflow.
+
 # Production Readiness Checklist — Google Review Autopilot
 
 **Target Stage**: Multi-Tenant Production SaaS  

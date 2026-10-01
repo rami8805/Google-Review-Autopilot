@@ -17,7 +17,7 @@ export interface AuthenticatedRequest extends Request {
 
 const userRepo = new UserRepository();
 
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = () => process.env.NODE_ENV === 'production';
 
 /**
  * Parses and cryptographically verifies Google Identity Platform / Firebase Auth Bearer tokens.
@@ -28,7 +28,7 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
 
   // 1. Structured test/dev tokens — HARD BLOCK in production
   if (token.startsWith('test_token_')) {
-    if (isProduction) {
+    if (isProduction()) {
       console.warn('[auth] Rejected test_token in production environment');
       return null;
     }
@@ -67,7 +67,7 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
 
   // 2. Mock development token — HARD BLOCK in production
   if (token === 'mock_access_token' || token === 'dev_bearer_token') {
-    if (isProduction) {
+    if (isProduction()) {
       console.warn('[auth] Rejected mock/dev bearer token in production environment');
       return null;
     }

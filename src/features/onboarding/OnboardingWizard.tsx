@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext.tsx';
 import {
   Building2,
   CheckCircle2,
@@ -22,6 +23,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   onComplete,
   onCancel,
 }) => {
+  const auth = useAuth();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSimulatingSync, setIsSimulatingSync] = useState(false);
@@ -37,14 +39,17 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const handleSimulatedOAuth = async () => {
     setIsConnecting(true);
     try {
-      await fetch('/api/google/connect-callback', { method: 'POST' });
-    } catch {
-      // offline fallback
-    } finally {
-      setTimeout(() => {
-        setIsConnecting(false);
-        setStep(2);
-      }, 1000);
+      const response = await fetch('/api/google/connect', {
+        headers: auth.getAuthHeaders(),
+      });
+      if (!response.ok) throw new Error('Unable to start Google Business Profile authorization');
+      const payload = await response.json();
+      const authUrl = payload?.data?.authUrl;
+      if (!authUrl) throw new Error('Google authorization URL was not returned');
+      window.location.assign(authUrl);
+    } catch (error) {
+      console.error('[onboarding] Google connection failed to start:', error);
+      setIsConnecting(false);
     }
   };
 

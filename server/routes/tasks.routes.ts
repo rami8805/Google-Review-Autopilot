@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { CloudTasksService } from '../services/tasks/cloudTasksService.ts';
+import { OAuth2Client } from 'google-auth-library';
 
 const router = Router();
 const tasksService = new CloudTasksService();
@@ -8,30 +9,35 @@ const tasksService = new CloudTasksService();
  * Middleware: Verifies the HTTP request originated from Google Cloud Tasks.
  * Checks for Cloud Tasks push headers and/or OIDC Bearer tokens.
  */
-function verifyCloudTasksOrigin(req: Request, res: Response, next: () => void) {
-  const isCloudTasksHeaderPresent =
-    Boolean(req.headers['x-cloudtasks-queuename']) ||
-    Boolean(req.headers['x-cloudtasks-taskname']);
+async function verifyCloudTasksOrigin(req: Request, res: Response, next: () => void) {
+  const authHeader = req.headers.authorization;
+  const isLocalTest = process.env.NODE_ENV !== 'production' &&
+    (process.env.NODE_ENV === 'test' || req.ip === '127.0.0.1' || req.ip === '::1');
 
-  const authHeader = req.headers['authorization'];
-  const isDevToken =
-    authHeader === 'Bearer test_cloud_tasks_token' ||
-    process.env.NODE_ENV === 'test' ||
-    req.ip === '127.0.0.1' ||
-    req.ip === '::1';
-
-  if (!isCloudTasksHeaderPresent && !isDevToken) {
-    res.status(401).json({
-      success: false,
-      error: {
-        code: 'UNAUTHORIZED_TASK_WORKER',
-        message: 'Request must originate from Google Cloud Tasks.',
-      },
-    });
+  if (isLocalTest) {
+    next();
     return;
   }
 
-  next();
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const audience = process.env.APP_BASE_URL;
+  const expectedServiceAccount = process.env.CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL;
+  if (!token || !audience || !expectedServiceAccount) {
+    res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED_TASK_WORKER', message: 'Valid Cloud Tasks OIDC configuration is required.' } });
+    return;
+  }
+
+  try {
+    const client = new OAuth2Client();
+    const ticket = await client.verifyIdToken({ idToken: token, audience });
+    const payload = ticket.getPayload();
+    if (!payload || payload.email !== expectedServiceAccount || payload.email_verified !== true) {
+      throw new Error('Invalid Cloud Tasks service identity');
+    }
+    next();
+  } catch {
+    res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED_TASK_WORKER', message: 'Cloud Tasks OIDC token verification failed.' } });
+  }
 }
 
 router.use(verifyCloudTasksOrigin);

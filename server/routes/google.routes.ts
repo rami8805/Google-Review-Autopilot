@@ -29,40 +29,7 @@ const auditRepo = new AuditRepository();
 const idempotencyRepo = new IdempotencyRepository();
 const oauthStateRepo = new OAuthStateRepository();
 
-router.use(requireAuth);
-router.use(requireTenant);
-
-// GET /api/google/connect
-// Creates a CSRF-safe OAuth state bound to the tenant+user, then returns the Google auth URL.
-router.get('/connect', async (req: AuthenticatedRequest, res) => {
-  try {
-    const tenantId = req.auth!.tenantId;
-    const userId = req.auth!.userId;
-    const state = `oauth_${tenantId}_${userId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-
-    await oauthStateRepo.createState(tenantId, userId, state, 600); // 10 min TTL
-
-    const url = await googleService.getAuthorizationUrl(state);
-    res.json({ success: true, data: { authUrl: url, state } });
-  } catch (err: any) {
-    console.error('[google/connect] Failed to start OAuth:', err?.message || err);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'OAUTH_START_FAILED',
-        message: 'Unable to start Google Business Profile connection.',
-        timestamp: new Date().toISOString(),
-      },
-    });
-  }
-});
-
-// POST /api/google/connect-callback
-// Body: { code: string, state: string }
-// Exchanges the authorization code, encrypts tokens at rest, upserts location + connection.
 router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
-  const tenantId = req.auth!.tenantId;
-  const userId = req.auth!.userId;
   const { code, state } = req.body || {};
 
   if (!code || typeof code !== 'string') {
@@ -104,18 +71,10 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
       return;
     }
 
-    // Ensure state belongs to this tenant (defense in depth)
-    if (oauthRecord.tenantId !== tenantId) {
-      res.status(403).json({
-        success: false,
-        error: {
-          code: 'OAUTH_STATE_TENANT_MISMATCH',
-          message: 'OAuth state does not match authenticated tenant.',
-          timestamp: new Date().toISOString(),
-        },
-      });
-      return;
-    }
+    // OAuth state is the authenticated binding for this callback because Google's
+    // browser redirect cannot carry our API Authorization header.
+    const tenantId = oauthRecord.tenantId;
+    const userId = oauthRecord.userId;
 
     // 2. Exchange authorization code for access + refresh tokens
     const tokens = await googleService.exchangeCodeForTokens(code);
@@ -227,6 +186,14 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
       timestamp: new Date().toISOString(),
     });
 
+    // Complete the browser OAuth flow without exposing the authorization code to the SPA.
+    const redirectBase = process.env.APP_BASE_URL || '/';
+    const redirectUrl = redirectBase.startsWith('http')
+      ? `${redirectBase.replace(/\/$/, '')}/onboarding?google=connected`
+      : `/onboarding?google=connected`;
+    res.redirect(303, redirectUrl);
+    return;
+
     // Never return tokens to the client
     res.json({
       success: true,
@@ -255,6 +222,38 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
   }
 });
 
+
+router.use(requireAuth);
+router.use(requireTenant);
+
+// GET /api/google/connect
+// Creates a CSRF-safe OAuth state bound to the tenant+user, then returns the Google auth URL.
+router.get('/connect', async (req: AuthenticatedRequest, res) => {
+  try {
+    const tenantId = req.auth!.tenantId;
+    const userId = req.auth!.userId;
+    const state = `oauth_${tenantId}_${userId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    await oauthStateRepo.createState(tenantId, userId, state, 600); // 10 min TTL
+
+    const url = await googleService.getAuthorizationUrl(state);
+    res.json({ success: true, data: { authUrl: url, state } });
+  } catch (err: any) {
+    console.error('[google/connect] Failed to start OAuth:', err?.message || err);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'OAUTH_START_FAILED',
+        message: 'Unable to start Google Business Profile connection.',
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+});
+
+// POST /api/google/connect-callback
+// Body: { code: string, state: string }
+// Exchanges the authorization code, encrypts tokens at rest, upserts location + connection.
 // POST /api/google/disconnect
 router.post('/disconnect', async (req: AuthenticatedRequest, res) => {
   const tenantId = req.auth!.tenantId;
@@ -341,6 +340,83 @@ router.post('/sync-reviews', async (req: AuthenticatedRequest, res) => {
 
   const rules = await ruleRepo.listByTenant(tenantId);
   const recentReplies = await replyRepo.listRecentByLocation(tenantId, locationId, 5);
+
+  // Production sync always reads real Google Business Profile reviews.
+  // Synthetic presets remain available only outside production for local demos/tests.
+  if (process.env.NODE_ENV === 'production') {
+    const connectionRecord = await googleRepo.getByLocationId(tenantId, locationId);
+    if (!connectionRecord?.googleLocationName) {
+      res.status(409).json({ success: false, error: { code: 'GOOGLE_CONNECTION_REQUIRED', message: 'Connect a Google Business Profile location before syncing reviews.' } });
+      return;
+    }
+
+    let connection = await googleRepo.getDecryptedTokens(tenantId, locationId);
+    if (!connection?.accessToken) {
+      res.status(409).json({ success: false, error: { code: 'GOOGLE_CONNECTION_REQUIRED', message: 'Reconnect Google Business Profile before syncing reviews.' } });
+      return;
+    }
+    if (connection.tokenExpiry && new Date(connection.tokenExpiry).getTime() <= Date.now() && connection.refreshToken) {
+      const refreshed = await googleService.refreshAccessToken(connection.refreshToken);
+      const expiry = new Date(Date.now() + refreshed.expiresIn * 1000).toISOString();
+      await googleRepo.updateTokens(tenantId, connectionRecord.id, refreshed.accessToken, undefined, expiry);
+      connection = { ...connection, accessToken: refreshed.accessToken, tokenExpiry: expiry };
+    }
+
+    const googleReviews = await googleService.listReviews(connection.accessToken, connectionRecord.googleLocationName);
+    const ingested: Array<{ review: Review; reply: any; result: any }> = [];
+
+    for (const googleReview of googleReviews.reviews) {
+      const existing = await reviewRepo.getByGoogleReviewName(tenantId, googleReview.name);
+      if (existing) continue;
+
+      const review: Review = {
+        id: `rev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        saasCustomerId: tenantId,
+        businessLocationId: locationId,
+        googleReviewId: googleReview.reviewId,
+        googleReviewName: googleReview.name,
+        author: googleReview.reviewer,
+        starRating: googleReview.starRating,
+        comment: googleReview.comment,
+        reviewCreatedAt: googleReview.createTime,
+        updatedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+
+      const { reply, result } = await reviewSyncJob.processIngestedReview({
+        review,
+        brandVoice,
+        rules,
+        recentReplies: recentReplies.map((r) => ({ proposedText: r.proposedText, publishedText: r.publishedText })),
+      });
+
+      await reviewRepo.createReviewAndReply(tenantId, review, reply);
+      await auditRepo.logEvent({
+        id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        saasCustomerId: tenantId,
+        actorType: 'SYSTEM_JOB',
+        action: result.actionTaken === 'AUTO_PUBLISHED' ? 'AUTO_PUBLISHED_REPLY' : 'APPROVAL_REQUIRED',
+        targetResourceType: 'REVIEW',
+        targetResourceId: review.id,
+        details: { starRating: review.starRating, riskLevel: result.riskLevel, replyId: reply.id },
+        timestamp: new Date().toISOString(),
+      });
+      ingested.push({ review, reply, result });
+    }
+
+    const responsePayload = {
+      success: true,
+      data: {
+        syncedLocationId: locationId,
+        newReviewsFound: ingested.length,
+        ingestedReviews: ingested,
+      },
+      meta: { timestamp: new Date().toISOString() },
+    };
+    if (idempotencyKey) await idempotencyRepo.complete(tenantId, idempotencyKey, 'SYNC_REVIEWS', 200, responsePayload);
+    res.json(responsePayload);
+    return;
+  }
 
   const preset = req.body?.preset;
   let authorName = req.body?.authorName || 'Google Reviewer';
