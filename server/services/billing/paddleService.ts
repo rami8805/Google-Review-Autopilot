@@ -40,7 +40,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
   verifyWebhookSignature(rawBody: string, signatureHeader: string): boolean {
     if (!this.webhookSecret) {
       // If secret not configured in local sandbox test mode, allow explicit test signature
-      if (signatureHeader && signatureHeader.startsWith('test_valid_sig')) return true;
+      if (process.env.NODE_ENV !== 'production' && signatureHeader && signatureHeader.startsWith('test_valid_sig')) return true;
       return false;
     }
 
@@ -251,6 +251,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
   }): Promise<{ id: string; email: string; name?: string }> {
     const mockId = `ctm_sandbox_${Date.now()}`;
     if (!this.apiKey) {
+      if (process.env.NODE_ENV === 'production') throw new Error('Paddle API key is required in production');
       await this.billingRepo.recordPaddleCustomer({
         id: `pc_${mockId}`,
         tenantId: params.tenantId,
@@ -286,6 +287,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       return { id: customerId, email: params.email, name: params.name };
     } catch (err) {
+      if (process.env.NODE_ENV === 'production') throw err;
       console.warn('[PaddleService] createCustomer failed, using sandbox fallback:', (err as Error).message);
       await this.billingRepo.recordPaddleCustomer({
         id: `pc_${mockId}`,
@@ -300,6 +302,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
 
   async getCustomer(customerId: string): Promise<any> {
     if (!this.apiKey) {
+      if (process.env.NODE_ENV === 'production') throw new Error('Paddle API key is required in production');
       return { id: customerId, status: 'active' };
     }
     try {
@@ -308,13 +311,15 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       const data: any = await res.json();
       return data.data;
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV === 'production') throw err;
       return { id: customerId, status: 'active' };
     }
   }
 
   async getTransaction(transactionId: string): Promise<any> {
     if (!this.apiKey) {
+      if (process.env.NODE_ENV === 'production') throw new Error('Paddle API key is required in production');
       return { id: transactionId, status: 'paid' };
     }
     try {
@@ -323,7 +328,8 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       const data: any = await res.json();
       return data.data;
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV === 'production') throw err;
       return { id: transactionId, status: 'paid' };
     }
   }
@@ -333,6 +339,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
     effectiveFrom: 'next_billing_period' | 'immediately' = 'next_billing_period'
   ): Promise<any> {
     if (!this.apiKey) {
+      if (process.env.NODE_ENV === 'production') throw new Error('Paddle API key is required in production');
       return { id: subscriptionId, status: 'canceled', effective_from: effectiveFrom };
     }
     try {
@@ -346,13 +353,15 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       const data: any = await res.json();
       return data.data;
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV === 'production') throw err;
       return { id: subscriptionId, status: 'canceled', effective_from: effectiveFrom };
     }
   }
 
   async updateSubscription(subscriptionId: string, params: { priceId: string }): Promise<any> {
     if (!this.apiKey) {
+      if (process.env.NODE_ENV === 'production') throw new Error('Paddle API key is required in production');
       return { id: subscriptionId, price_id: params.priceId, status: 'active' };
     }
     try {
@@ -369,13 +378,15 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       const data: any = await res.json();
       return data.data;
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV === 'production') throw err;
       return { id: subscriptionId, price_id: params.priceId, status: 'active' };
     }
   }
 
   async getPricePreview(priceIds: string[]): Promise<any> {
     if (!this.apiKey) {
+      if (process.env.NODE_ENV === 'production') throw new Error('Paddle API key is required in production');
       return {
         details: {
           line_items: priceIds.map((id) => ({
@@ -397,7 +408,8 @@ export class PaddleBillingService implements IPaddleBillingProvider {
       });
       const data: any = await res.json();
       return data.data;
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV === 'production') throw err;
       return {
         details: {
           line_items: priceIds.map((id) => ({
@@ -415,6 +427,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
     returnUrl?: string;
   }): Promise<{ transactionId: string; checkoutUrl?: string }> {
     if (!this.apiKey) {
+      if (process.env.NODE_ENV === 'production') throw new Error('Paddle API key is required in production');
       // Mock Sandbox development response
       const txId = `txn_sandbox_${Date.now()}`;
       return {
@@ -447,6 +460,7 @@ export class PaddleBillingService implements IPaddleBillingProvider {
         checkoutUrl: resData.data.url,
       };
     } catch (err) {
+      if (process.env.NODE_ENV === 'production') throw err;
       console.warn('[PaddleService] Paddle API call failed, using sandbox fallback:', (err as Error).message);
       const txId = `txn_sandbox_${Date.now()}`;
       return {
