@@ -170,7 +170,7 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
       primaryPhone: primary.primaryPhone,
       primaryCategory: primary.primaryCategory,
       isConnected: true,
-      automationEnabled: true,
+      automationEnabled: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -365,7 +365,7 @@ router.post('/sync-reviews', async (req: AuthenticatedRequest, res) => {
             };
             const recentReplies = await replyRepo.listRecentByLocation(tenantId, location.id, 5);
             const { reply, result } = await reviewSyncJob.processIngestedReview({
-              review, brandVoice, rules, accessToken,
+              review, brandVoice, rules, accessToken, allowAutoPublish: location.automationEnabled,
               recentReplies: recentReplies.map((item) => ({ proposedText: item.proposedText, publishedText: item.publishedText })),
             });
             await reviewRepo.createReviewAndReply(tenantId, review, reply);
