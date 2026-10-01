@@ -11,8 +11,9 @@ import {
   BrandVoiceRepository,
   AuditRepository,
   IdempotencyRepository,
+  OAuthStateRepository,
 } from '../repositories/postgresRepositories.ts';
-import type { Review } from '../../shared/types/domain.ts';
+import type { Review, GoogleConnection, BusinessLocation } from '../../shared/types/domain.ts';
 
 const router = Router();
 const googleService = new GoogleBusinessProfileService();
@@ -26,41 +27,232 @@ const ruleRepo = new AutomationRuleRepository();
 const brandVoiceRepo = new BrandVoiceRepository();
 const auditRepo = new AuditRepository();
 const idempotencyRepo = new IdempotencyRepository();
+const oauthStateRepo = new OAuthStateRepository();
 
 router.use(requireAuth);
 router.use(requireTenant);
 
 // GET /api/google/connect
+// Creates a CSRF-safe OAuth state bound to the tenant+user, then returns the Google auth URL.
 router.get('/connect', async (req: AuthenticatedRequest, res) => {
-  const state = `oauth_state_${req.auth!.tenantId}_${Date.now()}`;
-  const url = await googleService.getAuthorizationUrl(state);
-  res.json({ success: true, data: { authUrl: url, state } });
+  try {
+    const tenantId = req.auth!.tenantId;
+    const userId = req.auth!.userId;
+    const state = `oauth_${tenantId}_${userId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    await oauthStateRepo.createState(tenantId, userId, state, 600); // 10 min TTL
+
+    const url = await googleService.getAuthorizationUrl(state);
+    res.json({ success: true, data: { authUrl: url, state } });
+  } catch (err: any) {
+    console.error('[google/connect] Failed to start OAuth:', err?.message || err);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'OAUTH_START_FAILED',
+        message: 'Unable to start Google Business Profile connection.',
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
 });
 
 // POST /api/google/connect-callback
+// Body: { code: string, state: string }
+// Exchanges the authorization code, encrypts tokens at rest, upserts location + connection.
 router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
   const tenantId = req.auth!.tenantId;
-  const locations = await googleRepo.listLocations(tenantId);
-  const location = locations[0];
+  const userId = req.auth!.userId;
+  const { code, state } = req.body || {};
 
-  if (location) {
-    location.isConnected = true;
-    location.automationEnabled = true;
-    location.updatedAt = new Date().toISOString();
-    await googleRepo.upsertLocation(tenantId, location);
+  if (!code || typeof code !== 'string') {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'MISSING_AUTH_CODE',
+        message: 'Authorization code is required.',
+        timestamp: new Date().toISOString(),
+      },
+    });
+    return;
   }
 
-  await auditRepo.logEvent({
-    id: `audit_${Date.now()}`,
-    saasCustomerId: tenantId,
-    actorType: 'USER',
-    action: 'CONNECT_GOOGLE_LOCATION',
-    targetResourceType: 'LOCATION',
-    targetResourceId: location?.id || 'loc_001',
-    timestamp: new Date().toISOString(),
-  });
+  if (!state || typeof state !== 'string') {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'MISSING_OAUTH_STATE',
+        message: 'OAuth state is required for CSRF protection.',
+        timestamp: new Date().toISOString(),
+      },
+    });
+    return;
+  }
 
-  res.json({ success: true, data: { connected: true, location } });
+  try {
+    // 1. Validate and consume one-time OAuth state (CSRF + replay protection)
+    const oauthRecord = await oauthStateRepo.validateAndConsumeState(state);
+    if (!oauthRecord) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_OAUTH_STATE',
+          message: 'OAuth state is invalid, expired, or already used.',
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
+    // Ensure state belongs to this tenant (defense in depth)
+    if (oauthRecord.tenantId !== tenantId) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'OAUTH_STATE_TENANT_MISMATCH',
+          message: 'OAuth state does not match authenticated tenant.',
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
+    // 2. Exchange authorization code for access + refresh tokens
+    const tokens = await googleService.exchangeCodeForTokens(code);
+    if (!tokens?.accessToken) {
+      res.status(502).json({
+        success: false,
+        error: {
+          code: 'TOKEN_EXCHANGE_FAILED',
+          message: 'Google did not return a valid access token.',
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
+    const tokenExpiry = new Date(Date.now() + (tokens.expiresIn || 3600) * 1000).toISOString();
+
+    // 3. List Google Business Profile locations for this account
+    const googleLocations = await googleService.listLocations(tokens.accessToken, tokens.accountId);
+    const primary = googleLocations[0];
+
+    if (!primary) {
+      res.status(422).json({
+        success: false,
+        error: {
+          code: 'NO_GOOGLE_LOCATIONS',
+          message: 'No Google Business Profile locations found for this account.',
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
+    // 4. Upsert BusinessLocation (tenant-scoped)
+    const locationId = `loc_${tenantId.slice(-8)}_${primary.locationId}`;
+    const businessId = `biz_${tenantId}`;
+
+    const location: BusinessLocation = {
+      id: locationId,
+      saasCustomerId: tenantId,
+      businessId,
+      googleLocationId: primary.locationId,
+      locationName: primary.locationName,
+      address: {
+        addressLines: primary.addressLines || [],
+        locality: primary.locality || '',
+        administrativeArea: primary.administrativeArea || '',
+        postalCode: primary.postalCode || '',
+        country: primary.country || 'US',
+      },
+      primaryPhone: primary.primaryPhone,
+      primaryCategory: primary.primaryCategory,
+      isConnected: true,
+      automationEnabled: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const savedLocation = await googleRepo.upsertLocation(tenantId, location);
+
+    // 5. Upsert GoogleConnection with ENCRYPTED tokens (AES-256-GCM via repository)
+    const connectionId = `gconn_${tenantId.slice(-8)}_${primary.locationId}`;
+    const connection: GoogleConnection = {
+      id: connectionId,
+      saasCustomerId: tenantId,
+      businessLocationId: savedLocation.id,
+      googleAccountId: tokens.accountId,
+      googleLocationName: `accounts/${tokens.accountId.replace(/^accounts\//, '')}/locations/${primary.locationId}`,
+      // Pass plaintext; GoogleConnectionRepository.upsert encrypts before write
+      accessTokenEncrypted: tokens.accessToken as any,
+      refreshTokenEncrypted: (tokens.refreshToken || undefined) as any,
+      tokenExpiry,
+      scopes: ['https://www.googleapis.com/auth/business.manage'],
+      status: 'CONNECTED',
+      lastSyncedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any;
+
+    // Also set raw fields so upsert's looksPlain detection encrypts them
+    (connection as any).accessToken = tokens.accessToken;
+    (connection as any).refreshToken = tokens.refreshToken || null;
+
+    const savedConnection = await googleRepo.upsert(tenantId, connection);
+
+    // Ensure tokens are stored encrypted even if upsert path was ambiguous
+    await googleRepo.updateTokens(
+      tenantId,
+      savedConnection.id,
+      tokens.accessToken,
+      tokens.refreshToken || undefined,
+      tokenExpiry
+    );
+
+    // 6. Audit
+    await auditRepo.logEvent({
+      id: `audit_${Date.now()}`,
+      saasCustomerId: tenantId,
+      actorUserId: userId,
+      actorType: 'USER',
+      action: 'CONNECT_GOOGLE_LOCATION',
+      targetResourceType: 'LOCATION',
+      targetResourceId: savedLocation.id,
+      details: {
+        googleAccountId: tokens.accountId,
+        googleLocationId: primary.locationId,
+        locationName: primary.locationName,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    // Never return tokens to the client
+    res.json({
+      success: true,
+      data: {
+        connected: true,
+        location: savedLocation,
+        connection: {
+          id: savedConnection.id,
+          status: savedConnection.status,
+          googleAccountId: savedConnection.googleAccountId,
+          tokenExpiry: savedConnection.tokenExpiry,
+          scopes: savedConnection.scopes,
+        },
+      },
+    });
+  } catch (err: any) {
+    console.error('[google/connect-callback] OAuth callback failed:', err?.message || err);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'OAUTH_CALLBACK_FAILED',
+        message: err?.message || 'Failed to complete Google Business Profile connection.',
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
 });
 
 // POST /api/google/disconnect
@@ -74,15 +266,21 @@ router.post('/disconnect', async (req: AuthenticatedRequest, res) => {
     location.automationEnabled = false;
     location.updatedAt = new Date().toISOString();
     await googleRepo.upsertLocation(tenantId, location);
+
+    const connection = await googleRepo.getByLocationId(tenantId, location.id);
+    if (connection) {
+      await googleRepo.disconnect(tenantId, connection.id);
+    }
   }
 
   await auditRepo.logEvent({
     id: `audit_${Date.now()}`,
     saasCustomerId: tenantId,
+    actorUserId: req.auth!.userId,
     actorType: 'USER',
     action: 'DISCONNECT_GOOGLE_LOCATION',
     targetResourceType: 'LOCATION',
-    targetResourceId: location?.id || 'loc_001',
+    targetResourceId: location?.id || 'unknown',
     timestamp: new Date().toISOString(),
   });
 
