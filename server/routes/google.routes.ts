@@ -106,7 +106,7 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
     }
 
     // Ensure state belongs to this tenant (defense in depth)
-    if (oauthRecord.tenantId !== tenantId) {
+    if (oauthRecord.tenantId !== tenantId || oauthRecord.userId !== userId) {
       res.status(403).json({
         success: false,
         error: {
