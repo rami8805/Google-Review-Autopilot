@@ -1,4 +1,4 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import * as schema from '../db/schema.ts';
 import type { IGoogleConnectionRepository } from './types.ts';
@@ -118,6 +118,7 @@ export class GoogleConnectionRepository implements IGoogleConnectionRepository {
 
   /**
    * Returns decrypted OAuth tokens for Google API calls.
+   * Callers must never log or return these values to clients.
    */
   async getDecryptedTokens(
     tenantId: string,
@@ -169,7 +170,31 @@ export class GoogleConnectionRepository implements IGoogleConnectionRepository {
     return rows.map(this.mapLocation);
   }
 
+  /**
+   * Ensures a businesses row exists so business_locations.business_id FK is satisfied.
+   */
+  async ensureBusiness(tenantId: string, businessId: string, name: string): Promise<void> {
+    await db
+      .insert(schema.businesses)
+      .values({
+        id: businessId,
+        tenantId,
+        name,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: schema.businesses.id,
+        set: {
+          name,
+          updatedAt: new Date(),
+        },
+      });
+  }
+
   async upsertLocation(tenantId: string, location: BusinessLocation): Promise<BusinessLocation> {
+    // Ensure parent business exists (FK)
+    await this.ensureBusiness(tenantId, location.businessId, location.locationName);
+
     const [upserted] = await db
       .insert(schema.businessLocations)
       .values({

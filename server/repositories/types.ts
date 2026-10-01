@@ -126,10 +126,17 @@ export interface IGoogleConnectionRepository {
   getByLocationId(tenantId: string, locationId: string): Promise<GoogleConnection | null>;
   upsert(tenantId: string, connection: GoogleConnection): Promise<GoogleConnection>;
   updateTokens(tenantId: string, connectionId: string, accessToken: string, refreshToken?: string, expiry?: string): Promise<void>;
+  /** Decrypts OAuth tokens for outbound Google API calls. Never log the result. */
+  getDecryptedTokens(
+    tenantId: string,
+    locationId: string
+  ): Promise<{ accessToken: string; refreshToken: string | null; tokenExpiry: string | null } | null>;
   disconnect(tenantId: string, connectionId: string): Promise<void>;
   getLocation(tenantId: string, locationId: string): Promise<BusinessLocation | null>;
   listLocations(tenantId: string): Promise<BusinessLocation[]>;
   upsertLocation(tenantId: string, location: BusinessLocation): Promise<BusinessLocation>;
+  /** Ensures a businesses row exists for the tenant (required FK for locations). */
+  ensureBusiness(tenantId: string, businessId: string, name: string): Promise<void>;
 }
 
 export interface IAutomationRuleRepository {
