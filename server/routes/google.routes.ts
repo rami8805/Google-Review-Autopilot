@@ -186,6 +186,14 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
       timestamp: new Date().toISOString(),
     });
 
+    // Complete the browser OAuth flow without exposing the authorization code to the SPA.
+    const redirectBase = process.env.APP_BASE_URL || '/';
+    const redirectUrl = redirectBase.startsWith('http')
+      ? `${redirectBase.replace(/\/$/, '')}/onboarding?google=connected`
+      : `/onboarding?google=connected`;
+    res.redirect(303, redirectUrl);
+    return;
+
     // Never return tokens to the client
     res.json({
       success: true,
