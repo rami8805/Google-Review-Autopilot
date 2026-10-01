@@ -4,12 +4,18 @@ import { runIntegrationTests } from './integration/endToEndJourney.test';
 import { runReplyGuardTests } from './guard/replyGuard.test';
 import { runProductionTests } from './production/productionJourney.test';
 import { runPostgresPersistenceTests } from './db/postgresPersistence.test';
+import { runTokenCryptoTests } from './security/tokenCrypto.test';
 import { initTestDatabase } from './testDbHarness';
 
 async function main() {
   console.log('--- INITIALIZING POSTGRESQL TEST DATABASE HARNESS ---');
   initTestDatabase();
   console.log('PostgreSQL schema, tables, constraints, and indexes loaded.\n');
+
+  console.log('--- RUNNING TOKEN CRYPTO & PRODUCTION AUTH TESTS ---');
+  const cryptoResults = await runTokenCryptoTests();
+  cryptoResults.results.forEach((r) => console.log(r));
+  console.log(`Summary: ${cryptoResults.passed} passed, ${cryptoResults.failed} failed.\n`);
 
   console.log('--- RUNNING POSTGRESQL PERSISTENCE & DATA ARCHITECTURE TESTS ---');
   const persistenceResults = await runPostgresPersistenceTests();
@@ -42,6 +48,7 @@ async function main() {
   console.log(`Summary: ${productionResults.passed} passed, ${productionResults.failed} failed.\n`);
 
   const totalPassed =
+    cryptoResults.passed +
     persistenceResults.passed +
     ruleResults.passed +
     safetyResults.passed +
@@ -49,6 +56,7 @@ async function main() {
     guardResults.passed +
     productionResults.passed;
   const totalFailed =
+    cryptoResults.failed +
     persistenceResults.failed +
     ruleResults.failed +
     safetyResults.failed +
