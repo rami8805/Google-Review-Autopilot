@@ -1,17 +1,18 @@
 {
   "name": "google-review-autopilot",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
-    "start": "node server.ts",
+    "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "NODE_ENV=test tsx tests/runAllTests.ts",
-    "db:seed": "tsx server/db/seed.ts"
+    "db:seed": "tsx server/db/seed.ts",
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

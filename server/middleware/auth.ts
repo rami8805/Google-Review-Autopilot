@@ -17,16 +17,22 @@ export interface AuthenticatedRequest extends Request {
 
 const userRepo = new UserRepository();
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 /**
  * Parses and cryptographically verifies Google Identity Platform / Firebase Auth Bearer tokens.
- * For testing and local dev, supports structured signed test tokens:
- * "test_token_<userId>_<tenantId>_<role>"
+ * Test/dev tokens are ONLY accepted when NODE_ENV is not 'production'.
  */
 export async function verifyToken(token: string): Promise<AuthenticatedContext | null> {
   if (!token) return null;
 
-  // 1. Structured test/dev tokens
+  // 1. Structured test/dev tokens — HARD BLOCK in production
   if (token.startsWith('test_token_')) {
+    if (isProduction) {
+      console.warn('[auth] Rejected test_token in production environment');
+      return null;
+    }
+
     const raw = token.replace('test_token_', '');
     let role: UserRole = 'MEMBER';
     let tenantId = 'saas_cust_demo_01';
@@ -42,7 +48,9 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
       const parts = raw.split('_');
       if (parts.length >= 3) {
         const parsedRole = parts[parts.length - 1].toUpperCase() as UserRole;
-        role = ['OWNER', 'ADMIN', 'MEMBER', 'SUPPORT', 'SUPER_ADMIN'].includes(parsedRole) ? parsedRole : 'MEMBER';
+        role = ['OWNER', 'ADMIN', 'MEMBER', 'SUPPORT', 'SUPER_ADMIN'].includes(parsedRole)
+          ? parsedRole
+          : 'MEMBER';
         tenantId = parts.slice(1, parts.length - 1).join('_');
         userId = parts[0];
       }
@@ -57,8 +65,13 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
     };
   }
 
-  // 2. Mock development token for default tenant
+  // 2. Mock development token — HARD BLOCK in production
   if (token === 'mock_access_token' || token === 'dev_bearer_token') {
+    if (isProduction) {
+      console.warn('[auth] Rejected mock/dev bearer token in production environment');
+      return null;
+    }
+
     return {
       userId: 'usr_demo_01',
       identitySubject: 'google_sub_1089274910284',
@@ -78,13 +91,19 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
       identitySubject = decoded.uid;
       email = decoded.email || 'user@example.com';
     } catch {
-      // Fallback to JWT payload parsing for offline/test environments
-      const segments = token.split('.');
-      if (segments.length === 3) {
-        const payloadJson = Buffer.from(segments[1], 'base64').toString('utf-8');
-        const payload = JSON.parse(payloadJson);
-        identitySubject = payload.sub || payload.user_id;
-        email = payload.email || 'user@example.com';
+      // Fallback to JWT payload parsing only outside production (offline/test)
+      if (!isProduction) {
+        const segments = token.split('.');
+        if (segments.length === 3) {
+          try {
+            const payloadJson = Buffer.from(segments[1], 'base64').toString('utf-8');
+            const payload = JSON.parse(payloadJson);
+            identitySubject = payload.sub || payload.user_id;
+            email = payload.email || 'user@example.com';
+          } catch {
+            return null;
+          }
+        }
       }
     }
 
@@ -110,7 +129,7 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
       };
     }
 
-    // If user does not exist yet (first login)
+    // First login — provisional context (caller should complete onboarding)
     return {
       userId: `usr_${identitySubject.substring(0, 8)}`,
       identitySubject,
@@ -128,7 +147,11 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
  * Rejects unauthenticated requests and builds req.auth.
  * NEVER trusts client headers (x-tenant-id, x-user-role).
  */
-export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+export async function requireAuth(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).json({
@@ -157,7 +180,6 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     return;
   }
 
-  // Attach verified context
   req.auth = authContext;
   next();
 }
@@ -166,7 +188,11 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
  * Tenant Isolation Guard:
  * Ensures the authenticated user belongs to an active tenant.
  */
-export function requireTenant(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export function requireTenant(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void {
   if (!req.auth || !req.auth.tenantId) {
     res.status(403).json({
       success: false,
