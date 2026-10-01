@@ -448,7 +448,7 @@ function AppContent() {
                 location={location}
                 onComplete={(connectedLocation) => {
                   if (connectedLocation) {
-                    setLocation({ ...connectedLocation, isConnected: true, automationEnabled: false });
+                    setLocation({ ...connectedLocation, isConnected: true, automationEnabled: connectedLocation.automationEnabled });
                   }
                   showFeedback('Initial Google review sync completed. Review your dashboard and safety settings before enabling automation.', 'success');
                   navigate('/');
