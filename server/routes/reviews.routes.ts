@@ -10,6 +10,7 @@ import {
   AutomationRuleRepository,
   AuditRepository,
   IdempotencyRepository,
+  GoogleConnectionRepository,
 } from '../repositories/postgresRepositories.ts';
 
 const router = Router();
@@ -23,6 +24,7 @@ const brandVoiceRepo = new BrandVoiceRepository();
 const ruleRepo = new AutomationRuleRepository();
 const auditRepo = new AuditRepository();
 const idempotencyRepo = new IdempotencyRepository();
+const googleRepo = new GoogleConnectionRepository();
 
 router.use(requireAuth);
 router.use(requireTenant);
@@ -90,10 +92,40 @@ router.post('/:id/approve', async (req: AuthenticatedRequest, res) => {
   }
 
   const { editedReplyText } = req.body || {};
-  const textToPublish = editedReplyText || reply.proposedText;
+  const textToPublish = typeof editedReplyText === 'string' && editedReplyText.trim()
+    ? editedReplyText.trim()
+    : reply.proposedText;
 
-  // Publish via Google Provider Adapter
-  await googleService.publishReviewReply('mock_access_token', review.googleReviewName, textToPublish);
+  const brandVoice = await brandVoiceRepo.getByTenant(tenantId);
+  if (!brandVoice) {
+    res.status(409).json({ success: false, error: { code: 'BRAND_VOICE_REQUIRED', message: 'Configure brand voice before publishing a reply.' } });
+    return;
+  }
+
+  const guardResult = await replyGuard.validateReply({
+    review,
+    generatedReply: textToPublish,
+    businessContext: brandVoice.trustedBusinessContext,
+    brandVoice,
+    recentReplies: (await replyRepo.listRecentByLocation(tenantId, review.businessLocationId, 5)).map((r) => ({
+      proposedText: r.proposedText,
+      publishedText: r.publishedText,
+    })),
+    automationRules: await ruleRepo.listByTenant(tenantId),
+    regenerationAttempts: 1,
+  });
+  if (guardResult.decision === 'BLOCK' || guardResult.decision === 'BLOCK_AND_REGENERATE') {
+    res.status(422).json({ success: false, error: { code: 'REPLY_GUARD_BLOCKED', message: guardResult.customerExplanation || 'Reply failed safety validation.' } });
+    return;
+  }
+
+  const connection = await googleRepo.getDecryptedTokens(tenantId, review.businessLocationId);
+  if (!connection?.accessToken) {
+    res.status(409).json({ success: false, error: { code: 'GOOGLE_CONNECTION_REQUIRED', message: 'Reconnect Google Business Profile before publishing.' } });
+    return;
+  }
+
+  await googleService.publishReviewReply(connection.accessToken, review.googleReviewName, textToPublish);
 
   const updatedReply = await replyRepo.update(tenantId, reply.id, {
     status: 'MANUALLY_PUBLISHED',
