@@ -8,7 +8,110 @@
     <meta property="og:title" content="Google Review Autopilot" />
     <meta property="og:description" content="A simple SaaS for local businesses that connects to Google Business Profile, detects new Google reviews, uses Gemini to generate safe personalized replies, and automatically publishes replies according to configurable rules." />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Google Review Autopilot" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Google Review Autopilot" />
+    <meta name="twitter:description" content="A simple SaaS for local businesses that connects to Google Business Profile, detects new Google reviews, uses Gemini to generate safe personalized replies, and automatically publishes replies according to configurable rules." />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://googlereviewautopilot.com/#software",
+          "name": "Google Review Autopilot",
+          "applicationCategory": "BusinessApplication",
+          "operatingSystem": "Web",
+          "description": "A simple SaaS for local businesses that connects to Google Business Profile, detects new Google reviews, uses Gemini to generate safe personalized replies, and automatically publishes replies according to configurable rules.",
+          "offers": [
+            {
+              "@type": "Offer",
+              "name": "Starter",
+              "price": "29",
+              "priceCurrency": "USD",
+              "billingDuration": "P1M"
+            },
+            {
+              "@type": "Offer",
+              "name": "Growth",
+              "price": "69",
+              "priceCurrency": "USD",
+              "billingDuration": "P1M"
+            },
+            {
+              "@type": "Offer",
+              "name": "Pro",
+              "price": "149",
+              "priceCurrency": "USD",
+              "billingDuration": "P1M"
+            }
+          ]
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://googlereviewautopilot.com/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "How does Google Review Autopilot connect to my Google Business Profile?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Google Review Autopilot connects via Google’s official OAuth 2.0 protocol. When you authorize the app, Google grants secure API access to read your reviews and publish approved replies. We never see or store your Google account password."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can the AI accidentally offer customers free refunds or discounts?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "No. Our proprietary ReplyGuard™ safety engine scans every draft before publication. Any draft attempting to promise financial compensation, discounts, or equipment replacements is blocked immediately."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What happens when someone leaves a 1-star or negative review?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "1-star and 2-star reviews are strictly barred from auto-publishing. They are held in your team’s Approval Queue alongside a diplomatic, carefully drafted suggestion that invites the customer to reach out to your private management email."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can I disable automated publishing completely?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. Auto-publishing is completely optional and defaults to OFF when you first connect your profile. You can keep the system in draft-only mode indefinitely, requiring manual approval for every single response."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How does the 15-minute edit grace period work?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "When an eligible 4 or 5-star review arrives, the system drafts an on-brand reply and schedules it to publish in 15 minutes. During this window, you can review, edit, or cancel the draft before it goes live to Google."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Does it support multi-location businesses?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. The Growth plan supports up to 3 Google Business locations and the Pro plan supports up to 10 locations. You can monitor and manage reviews across all your locations from a single unified dashboard."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How does the 14-day free trial work?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "You can test all features of Google Review Autopilot free for 14 days. You can cancel with a single click at any time in your customer billing portal. No long-term contracts or cancellation penalties."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
