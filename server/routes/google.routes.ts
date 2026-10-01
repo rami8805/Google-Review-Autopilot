@@ -29,40 +29,7 @@ const auditRepo = new AuditRepository();
 const idempotencyRepo = new IdempotencyRepository();
 const oauthStateRepo = new OAuthStateRepository();
 
-router.use(requireAuth);
-router.use(requireTenant);
-
-// GET /api/google/connect
-// Creates a CSRF-safe OAuth state bound to the tenant+user, then returns the Google auth URL.
-router.get('/connect', async (req: AuthenticatedRequest, res) => {
-  try {
-    const tenantId = req.auth!.tenantId;
-    const userId = req.auth!.userId;
-    const state = `oauth_${tenantId}_${userId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-
-    await oauthStateRepo.createState(tenantId, userId, state, 600); // 10 min TTL
-
-    const url = await googleService.getAuthorizationUrl(state);
-    res.json({ success: true, data: { authUrl: url, state } });
-  } catch (err: any) {
-    console.error('[google/connect] Failed to start OAuth:', err?.message || err);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'OAUTH_START_FAILED',
-        message: 'Unable to start Google Business Profile connection.',
-        timestamp: new Date().toISOString(),
-      },
-    });
-  }
-});
-
-// POST /api/google/connect-callback
-// Body: { code: string, state: string }
-// Exchanges the authorization code, encrypts tokens at rest, upserts location + connection.
 router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
-  const tenantId = req.auth!.tenantId;
-  const userId = req.auth!.userId;
   const { code, state } = req.body || {};
 
   if (!code || typeof code !== 'string') {
@@ -104,18 +71,10 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
       return;
     }
 
-    // Ensure state belongs to this tenant (defense in depth)
-    if (oauthRecord.tenantId !== tenantId) {
-      res.status(403).json({
-        success: false,
-        error: {
-          code: 'OAUTH_STATE_TENANT_MISMATCH',
-          message: 'OAuth state does not match authenticated tenant.',
-          timestamp: new Date().toISOString(),
-        },
-      });
-      return;
-    }
+    // OAuth state is the authenticated binding for this callback because Google's
+    // browser redirect cannot carry our API Authorization header.
+    const tenantId = oauthRecord.tenantId;
+    const userId = oauthRecord.userId;
 
     // 2. Exchange authorization code for access + refresh tokens
     const tokens = await googleService.exchangeCodeForTokens(code);
@@ -255,6 +214,38 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
   }
 });
 
+
+router.use(requireAuth);
+router.use(requireTenant);
+
+// GET /api/google/connect
+// Creates a CSRF-safe OAuth state bound to the tenant+user, then returns the Google auth URL.
+router.get('/connect', async (req: AuthenticatedRequest, res) => {
+  try {
+    const tenantId = req.auth!.tenantId;
+    const userId = req.auth!.userId;
+    const state = `oauth_${tenantId}_${userId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    await oauthStateRepo.createState(tenantId, userId, state, 600); // 10 min TTL
+
+    const url = await googleService.getAuthorizationUrl(state);
+    res.json({ success: true, data: { authUrl: url, state } });
+  } catch (err: any) {
+    console.error('[google/connect] Failed to start OAuth:', err?.message || err);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'OAUTH_START_FAILED',
+        message: 'Unable to start Google Business Profile connection.',
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+});
+
+// POST /api/google/connect-callback
+// Body: { code: string, state: string }
+// Exchanges the authorization code, encrypts tokens at rest, upserts location + connection.
 // POST /api/google/disconnect
 router.post('/disconnect', async (req: AuthenticatedRequest, res) => {
   const tenantId = req.auth!.tenantId;
