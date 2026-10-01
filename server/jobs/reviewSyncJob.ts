@@ -42,8 +42,9 @@ export class ReviewSyncJob {
     rules?: AutomationRule[];
     recentReplies?: Array<{ proposedText: string; publishedText?: string }>;
     accessToken?: string;
+    allowAutoPublish?: boolean;
   }): Promise<{ reply: ReviewReply; result: IngestionResult }> {
-    const { review, brandVoice, rules, recentReplies = [], accessToken } = params;
+    const { review, brandVoice, rules, recentReplies = [], accessToken, allowAutoPublish = true } = params;
 
     // Phase 1: Risk Assessment
     const riskAssessment = await this.aiEngine.assessRisk(review.comment || '', review.starRating);
@@ -118,7 +119,8 @@ export class ReviewSyncJob {
       riskAssessment.riskLevel === 'LOW' &&
       matchingRule &&
       matchingRule.action === 'AUTO_PUBLISH' &&
-      Boolean(accessToken)
+      Boolean(accessToken) &&
+      allowAutoPublish
     ) {
       const currentRiskSeverity = RISK_LEVEL_SEVERITY[riskAssessment.riskLevel];
       const maxAllowedSeverity = RISK_LEVEL_SEVERITY[matchingRule.maxRiskLevelForAutoPublish];

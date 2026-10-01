@@ -446,9 +446,11 @@ function AppContent() {
             element={
               <OnboardingWizard
                 location={location}
-                onComplete={() => {
-                  setLocation({ ...location, isConnected: true, automationEnabled: true });
-                  showFeedback('Google Business Profile connected and Autopilot activated!', 'success');
+                onComplete={(connectedLocation) => {
+                  if (connectedLocation) {
+                    setLocation({ ...connectedLocation, isConnected: true, automationEnabled: connectedLocation.automationEnabled });
+                  }
+                  showFeedback('Initial Google review sync completed. Review your dashboard and safety settings before enabling automation.', 'success');
                   navigate('/');
                 }}
                 onCancel={() => navigate('/')}

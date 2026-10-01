@@ -170,7 +170,7 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
       primaryPhone: primary.primaryPhone,
       primaryCategory: primary.primaryCategory,
       isConnected: true,
-      automationEnabled: true,
+      automationEnabled: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -254,6 +254,52 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
       },
     });
   }
+});
+
+// PUT /api/google/automation
+// Automation is opt-in: the user must explicitly enable it after reviewing the first real sync.
+router.put('/automation', async (req: AuthenticatedRequest, res) => {
+  const tenantId = req.auth!.tenantId;
+  const { locationId, enabled } = req.body || {};
+  if (typeof locationId !== 'string' || !locationId || typeof enabled !== 'boolean') {
+    res.status(400).json({ success: false, error: { code: 'INVALID_AUTOMATION_SETTINGS', message: 'locationId and a boolean enabled value are required.' } });
+    return;
+  }
+
+  const location = (await googleRepo.listLocations(tenantId)).find((item) => item.id === locationId);
+  if (!location) {
+    res.status(404).json({ success: false, error: { code: 'LOCATION_NOT_FOUND', message: 'The requested business location was not found for this account.' } });
+    return;
+  }
+
+  if (enabled) {
+    const connection = await googleRepo.getByLocationId(tenantId, location.id);
+    if (!location.isConnected || !connection || connection.status !== 'CONNECTED') {
+      res.status(409).json({ success: false, error: { code: 'GOOGLE_NOT_CONNECTED', message: 'Connect Google Business Profile before enabling automation.' } });
+      return;
+    }
+    const subscription = await billingRepo.getSubscription(tenantId);
+    if (subscription && !['ACTIVE', 'TRIALING'].includes(subscription.status)) {
+      res.status(403).json({ success: false, error: { code: 'SUBSCRIPTION_INACTIVE', message: 'An active subscription is required to enable automation.' } });
+      return;
+    }
+  }
+
+  location.automationEnabled = enabled;
+  location.updatedAt = new Date().toISOString();
+  const savedLocation = await googleRepo.upsertLocation(tenantId, location);
+  await auditRepo.logEvent({
+    id: `audit_${crypto.randomUUID()}`,
+    saasCustomerId: tenantId,
+    actorUserId: req.auth!.userId,
+    actorType: 'USER',
+    action: enabled ? 'ENABLE_REVIEW_AUTOMATION' : 'DISABLE_REVIEW_AUTOMATION',
+    targetResourceType: 'LOCATION',
+    targetResourceId: location.id,
+    details: { enabled },
+    timestamp: new Date().toISOString(),
+  });
+  res.json({ success: true, data: { location: savedLocation, automationEnabled: enabled } });
 });
 
 // POST /api/google/disconnect
@@ -365,7 +411,7 @@ router.post('/sync-reviews', async (req: AuthenticatedRequest, res) => {
             };
             const recentReplies = await replyRepo.listRecentByLocation(tenantId, location.id, 5);
             const { reply, result } = await reviewSyncJob.processIngestedReview({
-              review, brandVoice, rules, accessToken,
+              review, brandVoice, rules, accessToken, allowAutoPublish: location.automationEnabled,
               recentReplies: recentReplies.map((item) => ({ proposedText: item.proposedText, publishedText: item.publishedText })),
             });
             await reviewRepo.createReviewAndReply(tenantId, review, reply);
