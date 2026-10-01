@@ -42,6 +42,8 @@ async function startServer() {
     app.set('trust proxy', 1);
   }
 
+  // Paddle signature verification requires the exact raw request bytes.
+  app.use('/api/webhooks/paddle', express.raw({ type: 'application/json', limit: '1mb' }));
   app.use(express.json({ limit: '1mb' }));
 
   // Mount API Gateway routes
