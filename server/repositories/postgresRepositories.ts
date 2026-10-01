@@ -1,6 +1,6 @@
 /**
  * Repository layer barrel — multi-tenant PostgreSQL via Drizzle.
- * Google OAuth tokens are encrypted at rest (AES-256-GCM).
+ * Google OAuth tokens encrypted at rest (AES-256-GCM).
  */
 export { GoogleConnectionRepository } from './googleConnectionRepository.ts';
 export {
@@ -15,11 +15,9 @@ export {
   AutomationRuleRepository,
   BrandVoiceRepository,
   AuditRepository,
-} from './repos_group_1.ts';
-export {
   SupportRepository,
   NotificationRepository,
   IdempotencyRepository,
   JobRecordRepository,
   OAuthStateRepository,
-} from './repos_group_2.ts';
+} from './repos_remaining.ts';
