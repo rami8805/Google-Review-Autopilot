@@ -119,10 +119,17 @@ router.post('/:id/approve', async (req: AuthenticatedRequest, res) => {
     return;
   }
 
-  const connection = await googleRepo.getDecryptedTokens(tenantId, review.businessLocationId);
+  let connection = await googleRepo.getDecryptedTokens(tenantId, review.businessLocationId);
   if (!connection?.accessToken) {
     res.status(409).json({ success: false, error: { code: 'GOOGLE_CONNECTION_REQUIRED', message: 'Reconnect Google Business Profile before publishing.' } });
     return;
+  }
+  if (connection.tokenExpiry && new Date(connection.tokenExpiry).getTime() <= Date.now() && connection.refreshToken) {
+    const refreshed = await googleService.refreshAccessToken(connection.refreshToken);
+    const stored = await googleRepo.getByLocationId(tenantId, review.businessLocationId);
+    if (!stored) throw new Error('Google connection disappeared during token refresh');
+    await googleRepo.updateTokens(tenantId, stored.id, refreshed.accessToken, undefined, new Date(Date.now() + refreshed.expiresIn * 1000).toISOString());
+    connection = { ...connection, accessToken: refreshed.accessToken, tokenExpiry: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString() };
   }
 
   await googleService.publishReviewReply(connection.accessToken, review.googleReviewName, textToPublish);
