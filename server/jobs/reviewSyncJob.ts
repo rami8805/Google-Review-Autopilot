@@ -119,7 +119,6 @@ export class ReviewSyncJob {
       riskAssessment.riskLevel === 'LOW' &&
       matchingRule &&
       matchingRule.action === 'AUTO_PUBLISH' &&
-      Boolean(accessToken) &&
       allowAutoPublish
     ) {
       const currentRiskSeverity = RISK_LEVEL_SEVERITY[riskAssessment.riskLevel];
@@ -148,17 +147,19 @@ export class ReviewSyncJob {
     };
 
     if (isEligibleForAutoPublish) {
-      try {
-        await this.googleService.publishReviewReply(
-          accessToken!,
-          review.googleReviewName,
-          proposedText
-        );
-      } catch (err) {
-        reply.status = 'FAILED_TO_PUBLISH';
-        reply.publishedAt = undefined;
-        reply.publishedText = undefined;
-        reply.publishErrorMessage = (err as Error).message;
+      if (accessToken) {
+        try {
+          await this.googleService.publishReviewReply(
+            accessToken,
+            review.googleReviewName,
+            proposedText
+          );
+        } catch (err) {
+          reply.status = 'FAILED_TO_PUBLISH';
+          reply.publishedAt = undefined;
+          reply.publishedText = undefined;
+          reply.publishErrorMessage = (err as Error).message;
+        }
       }
     } else {
       await this.notificationService.notifyApprovalRequired(

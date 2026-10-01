@@ -304,7 +304,7 @@ export class AuditRepository implements IAuditRepository {
       actorUserId: r.actorUserId || undefined,
       actorType: r.actorType as any,
       action: r.action,
-      targetResourceType: r.targetResourceType,
+      targetResourceType: r.targetResourceType as any,
       targetResourceId: r.targetResourceId,
       details: r.detailsJson as any,
       ipAddress: r.ipAddress || undefined,
@@ -320,7 +320,7 @@ export class AuditRepository implements IAuditRepository {
       actorUserId: r.actorUserId || undefined,
       actorType: r.actorType as any,
       action: r.action,
-      targetResourceType: r.targetResourceType,
+      targetResourceType: r.targetResourceType as any,
       targetResourceId: r.targetResourceId,
       details: r.detailsJson as any,
       ipAddress: r.ipAddress || undefined,
@@ -451,7 +451,6 @@ export class SupportRepository implements ISupportRepository {
     });
     return {
       id,
-      saasCustomerId: tenantId,
       ticketId,
       senderType,
       senderName,
@@ -552,7 +551,7 @@ export class IdempotencyRepository implements IIdempotencyRepository {
       operation: r.operation,
       requestHash: r.requestHash,
       responseStatus: r.responseStatus || undefined,
-      responseBody: r.responseBody as unknown,
+      responseBody: r.responseBodyJson as unknown,
       lockedAt: r.lockedAt.toISOString(),
       expiresAt: r.expiresAt.toISOString(),
     };
@@ -561,7 +560,7 @@ export class IdempotencyRepository implements IIdempotencyRepository {
   async complete(tenantId: string, key: string, operation: string, responseStatus: number, responseBody: unknown): Promise<void> {
     await db
       .update(schema.idempotencyKeys)
-      .set({ responseStatus, responseBody: responseBody as any })
+      .set({ responseStatus, responseBodyJson: responseBody as any })
       .where(
         and(
           eq(schema.idempotencyKeys.tenantId, tenantId),
@@ -583,9 +582,9 @@ export class JobRecordRepository implements IJobRecordRepository {
       operation: job.operation,
       attemptCount: 0,
       status: 'PENDING',
-      payload: job.payload as any,
+      payloadJson: job.payload as any,
       idempotencyKey: job.idempotencyKey,
-    });
+    } as any);
     return {
       ...job,
       id,
@@ -611,7 +610,10 @@ export class JobRecordRepository implements IJobRecordRepository {
       lockedBy: j.lockedBy || undefined,
       lastError: j.lastError || undefined,
       idempotencyKey: j.idempotencyKey || undefined,
-      payload: j.payload as unknown,
+      payload: j.payloadJson as unknown,
+      completedAt: j.completedAt?.toISOString(),
+      failedAt: j.failedAt?.toISOString(),
+      finishedAt: j.finishedAt?.toISOString(),
       createdAt: j.createdAt.toISOString(),
     };
   }

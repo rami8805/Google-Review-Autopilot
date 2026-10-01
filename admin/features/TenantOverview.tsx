@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { SaaSCustomer, Subscription, Review, SupportTicket, AuditEvent } from '../../shared/types/domain';
+import { useAuth } from '../../src/context/AuthContext';
 import {
   Building2,
   CheckCircle2,
@@ -24,7 +25,7 @@ interface TenantSummary {
   autoPublishRate: number;
 }
 
-const mockTenants: TenantSummary[] = [
+const defaultTenants: TenantSummary[] = [
   {
     customer: {
       id: 'saas_cust_demo_01',
@@ -51,35 +52,11 @@ const mockTenants: TenantSummary[] = [
     reviewsProcessed: 42,
     autoPublishRate: 85.7,
   },
-  {
-    customer: {
-      id: 'saas_cust_demo_02',
-      name: 'Golden Gate Auto Repair',
-      billingEmail: 'service@goldengateauto.com',
-      status: 'ACTIVE',
-      createdAt: '2026-02-10T00:00:00Z',
-      updatedAt: '2026-02-10T00:00:00Z',
-    },
-    subscription: {
-      id: 'sub_02',
-      saasCustomerId: 'saas_cust_demo_02',
-      plan: 'GROWTH',
-      status: 'ACTIVE',
-      currentPeriodStart: '2026-09-10T00:00:00Z',
-      currentPeriodEnd: '2026-10-10T00:00:00Z',
-      cancelAtPeriodEnd: false,
-      locationLimit: 3,
-      monthlyReplyLimit: 150,
-      createdAt: '2026-02-10T00:00:00Z',
-      updatedAt: '2026-02-10T00:00:00Z',
-    },
-    locationCount: 2,
-    reviewsProcessed: 118,
-    autoPublishRate: 74.2,
-  },
 ];
 
 export const TenantOverview: React.FC = () => {
+  const { getAuthHeaders } = useAuth();
+  const [tenants, setTenants] = useState<TenantSummary[]>(defaultTenants);
   const [searchTerm, setSearchTerm] = useState('');
   const [planFilter, setPlanFilter] = useState<'ALL' | 'STARTER' | 'GROWTH' | 'PRO'>('ALL');
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
@@ -96,7 +73,52 @@ export const TenantOverview: React.FC = () => {
   const [newNoteText, setNewNoteText] = useState('');
   const [isAddingNote, setIsAddingNote] = useState(false);
 
-  const filteredTenants = mockTenants.filter((t) => {
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      try {
+        const res = await fetch('/api/admin/customers', {
+          headers: getAuthHeaders(),
+        });
+        if (res.ok) {
+          const payload = await res.json();
+          if (payload?.success && Array.isArray(payload.data) && payload.data.length > 0) {
+            const mapped: TenantSummary[] = payload.data.map((c: any) => ({
+              customer: {
+                id: c.id,
+                name: c.name,
+                billingEmail: c.billingEmail,
+                status: c.status,
+                createdAt: c.createdAt,
+                updatedAt: c.createdAt,
+              },
+              subscription: {
+                id: `sub_${c.id}`,
+                saasCustomerId: c.id,
+                plan: c.plan,
+                status: c.subscriptionStatus,
+                currentPeriodStart: new Date().toISOString(),
+                currentPeriodEnd: new Date().toISOString(),
+                cancelAtPeriodEnd: false,
+                locationLimit: c.locationsCount,
+                monthlyReplyLimit: 50,
+                createdAt: c.createdAt,
+                updatedAt: c.createdAt,
+              },
+              locationCount: c.locationsCount || 1,
+              reviewsProcessed: c.reviewsCount || 0,
+              autoPublishRate: 85.0,
+            }));
+            setTenants(mapped);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch real admin customers:', err);
+      }
+    };
+    fetchCustomers();
+  }, []);
+
+  const filteredTenants = tenants.filter((t) => {
     const q = searchTerm.toLowerCase().trim();
     const matchesSearch =
       !q ||
@@ -112,7 +134,7 @@ export const TenantOverview: React.FC = () => {
     setIsLoadingDetail(true);
     try {
       const res = await fetch(`/api/admin/customers/${tenantId}`, {
-        headers: { 'x-user-role': 'SUPER_ADMIN' },
+        headers: getAuthHeaders(),
       });
       if (res.ok) {
         const payload = await res.json();
@@ -135,18 +157,16 @@ export const TenantOverview: React.FC = () => {
     try {
       const res = await fetch(`/api/admin/customers/${selectedTenantId}/notes`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-role': 'SUPER_ADMIN',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ author: 'Admin Lead', note: newNoteText.trim() }),
       });
       if (res.ok) {
         const payload = await res.json();
-        if (payload?.success && payload.data) {
-          setTenantDetail((prev) =>
-            prev ? { ...prev, notes: [payload.data, ...prev.notes] } : null
-          );
+        if (payload?.success && payload.data && tenantDetail) {
+          setTenantDetail({
+            ...tenantDetail,
+            notes: [payload.data, ...tenantDetail.notes],
+          });
           setNewNoteText('');
         }
       }

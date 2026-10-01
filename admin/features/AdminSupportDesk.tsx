@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { SupportTicket, SupportMessage } from '../../shared/types/domain';
+import { useAuth } from '../../src/context/AuthContext';
 import {
   LifeBuoy,
   MessageSquare,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 
 export const AdminSupportDesk: React.FC = () => {
+  const { getAuthHeaders } = useAuth();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
   const [messages, setMessages] = useState<SupportMessage[]>([]);
@@ -28,7 +30,7 @@ export const AdminSupportDesk: React.FC = () => {
     setIsLoadingTickets(true);
     try {
       const res = await fetch('/api/admin/support/tickets', {
-        headers: { 'x-user-role': 'SUPER_ADMIN' },
+        headers: getAuthHeaders(),
       });
       if (res.ok) {
         const payload = await res.json();
@@ -55,7 +57,7 @@ export const AdminSupportDesk: React.FC = () => {
     setAiDraftNotice(null);
     try {
       const res = await fetch(`/api/support/tickets/${ticket.id}/messages`, {
-        headers: { 'x-user-role': 'SUPER_ADMIN', 'x-tenant-id': ticket.saasCustomerId },
+        headers: getAuthHeaders(),
       });
       if (res.ok) {
         const payload = await res.json();
@@ -74,14 +76,11 @@ export const AdminSupportDesk: React.FC = () => {
     try {
       const res = await fetch('/api/admin/support/ai-draft', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-role': 'SUPER_ADMIN',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           ticketSubject: selectedTicket.subject,
           userMessage: messages[0]?.message || '',
-          customerName: 'Dr. Sarah Lin',
+          customerName: 'Customer',
         }),
       });
 
@@ -107,10 +106,7 @@ export const AdminSupportDesk: React.FC = () => {
     try {
       const res = await fetch(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-role': 'SUPER_ADMIN',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           message: replyText.trim(),
           senderName: 'Support Team Specialist',

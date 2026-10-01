@@ -1,37 +1,83 @@
 import { Router, type Request, type Response } from 'express';
+import { OAuth2Client } from 'google-auth-library';
 import { CloudTasksService } from '../services/tasks/cloudTasksService.ts';
 
 const router = Router();
 const tasksService = new CloudTasksService();
+const authClient = new OAuth2Client();
 
 /**
- * Middleware: Verifies the HTTP request originated from Google Cloud Tasks.
- * Checks for Cloud Tasks push headers and/or OIDC Bearer tokens.
+ * Middleware: Cryptographically verifies that the HTTP request originated from Google Cloud Tasks.
+ * Validates Google OIDC ID tokens (JWT) passed in the Authorization header.
+ * Raw header-based spoofing (e.g. x-cloudtasks-queuename) is strictly rejected in production.
  */
-function verifyCloudTasksOrigin(req: Request, res: Response, next: () => void) {
-  const isCloudTasksHeaderPresent =
-    Boolean(req.headers['x-cloudtasks-queuename']) ||
-    Boolean(req.headers['x-cloudtasks-taskname']);
-
-  const authHeader = req.headers['authorization'];
-  const isDevToken =
-    authHeader === 'Bearer test_cloud_tasks_token' ||
+async function verifyCloudTasksOrigin(req: Request, res: Response, next: () => void) {
+  const authHeader = req.headers['authorization'] || '';
+  const isTestOrLocal =
     process.env.NODE_ENV === 'test' ||
-    req.ip === '127.0.0.1' ||
-    req.ip === '::1';
+    (process.env.NODE_ENV !== 'production' && (req.ip === '127.0.0.1' || req.ip === '::1'));
 
-  if (!isCloudTasksHeaderPresent && !isDevToken) {
+  // Test suite / local dev token support
+  if (isTestOrLocal && (authHeader === 'Bearer test_cloud_tasks_token' || process.env.NODE_ENV === 'test')) {
+    next();
+    return;
+  }
+
+  if (!authHeader.startsWith('Bearer ')) {
     res.status(401).json({
       success: false,
       error: {
         code: 'UNAUTHORIZED_TASK_WORKER',
-        message: 'Request must originate from Google Cloud Tasks.',
+        message: 'Request must contain a valid Google OIDC Bearer token.',
       },
     });
     return;
   }
 
-  next();
+  const idToken = authHeader.substring(7).trim();
+
+  try {
+    const expectedAudience =
+      process.env.CLOUD_TASKS_WORKER_URL ||
+      process.env.APP_BASE_URL ||
+      undefined;
+
+    const ticket = await authClient.verifyIdToken({
+      idToken,
+      audience: expectedAudience,
+    });
+
+    const payload = ticket.getPayload();
+    if (!payload?.email_verified) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'UNVERIFIED_OIDC_TOKEN', message: 'Google OIDC token email is unverified.' },
+      });
+      return;
+    }
+
+    const expectedServiceAccount = process.env.CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL;
+    if (expectedServiceAccount && payload.email !== expectedServiceAccount) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN_SERVICE_ACCOUNT',
+          message: 'OIDC token service account does not match configured Cloud Tasks worker.',
+        },
+      });
+      return;
+    }
+
+    next();
+  } catch (err: any) {
+    res.status(401).json({
+      success: false,
+      error: {
+        code: 'INVALID_OIDC_TOKEN',
+        message: err?.message || 'Google OIDC token verification failed.',
+      },
+    });
+  }
 }
 
 router.use(verifyCloudTasksOrigin);

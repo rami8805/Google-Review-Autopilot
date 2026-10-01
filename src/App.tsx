@@ -289,7 +289,7 @@ function AppContent() {
   ) => {
     setIsSimulatingReview(true);
     try {
-      const res = await fetch('/api/google/sync-reviews', {
+      const res = await fetch('/api/reviews/simulate', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ preset }),
@@ -297,13 +297,13 @@ function AppContent() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => null);
-        throw new Error(errorData?.error?.message || 'Unable to sync review. Check connection.');
+        throw new Error(errorData?.error?.message || 'Unable to simulate review.');
       }
 
       const payload = await res.json();
       if (payload?.success && payload.data?.ingestedReview) {
         const newRev = payload.data.ingestedReview;
-        setReviews((prev) => [newRev, ...prev]);
+        setReviews((prev) => [newRev, ...prev.filter((r) => r.id !== newRev.id)]);
 
         if (payload.data.result?.actionTaken === 'AUTO_PUBLISHED') {
           showFeedback('Inbound 5★ Review: Gemini drafted safe reply & published automatically to Google!', 'success');
@@ -334,9 +334,11 @@ function AppContent() {
       }
 
       const payload = await res.json();
-      if (payload?.success && payload.data?.ingestedReview) {
-        setReviews((prev) => [payload.data.ingestedReview, ...prev]);
-        showFeedback('Synced 1 new review from Google Business Profile!', 'success');
+      await loadReviewsFromApi();
+
+      const newCount = payload?.data?.newReviewsFound || 0;
+      if (newCount > 0) {
+        showFeedback(`Synced ${newCount} new review${newCount > 1 ? 's' : ''} from Google Business Profile!`, 'success');
       } else {
         showFeedback('Google Business Profile is up to date!', 'success');
       }

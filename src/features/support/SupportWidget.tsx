@@ -13,12 +13,14 @@ import {
   Shield,
 } from 'lucide-react';
 import type { SupportTicket, SupportMessage } from '../../../shared/types/domain';
+import { useAuth } from '../../context/AuthContext';
 
 interface SupportWidgetProps {
   userEmail: string;
 }
 
 export const SupportWidget: React.FC<SupportWidgetProps> = ({ userEmail }) => {
+  const { getAuthHeaders, name } = useAuth();
   const [activeTab, setActiveTab] = useState<'list' | 'create'>('list');
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
@@ -40,7 +42,9 @@ export const SupportWidget: React.FC<SupportWidgetProps> = ({ userEmail }) => {
   const fetchTickets = async () => {
     setIsLoadingTickets(true);
     try {
-      const res = await fetch('/api/support/tickets');
+      const res = await fetch('/api/support/tickets', {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         if (data?.success && Array.isArray(data.data)) {
@@ -62,7 +66,9 @@ export const SupportWidget: React.FC<SupportWidgetProps> = ({ userEmail }) => {
     setSelectedTicket(ticket);
     setIsLoadingMessages(true);
     try {
-      const res = await fetch(`/api/support/tickets/${ticket.id}/messages`);
+      const res = await fetch(`/api/support/tickets/${ticket.id}/messages`, {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         if (data?.success && Array.isArray(data.data?.messages)) {
@@ -90,7 +96,7 @@ export const SupportWidget: React.FC<SupportWidgetProps> = ({ userEmail }) => {
     try {
       const res = await fetch('/api/support/tickets', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ email: userEmail, subject, message: fullMessage }),
       });
 
@@ -122,8 +128,8 @@ export const SupportWidget: React.FC<SupportWidgetProps> = ({ userEmail }) => {
     try {
       const res = await fetch(`/api/support/tickets/${selectedTicket.id}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: replyText.trim(), senderName: 'Dr. Sarah Lin' }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ message: replyText.trim(), senderName: name || 'Business Owner' }),
       });
 
       if (res.ok) {

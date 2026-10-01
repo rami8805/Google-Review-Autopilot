@@ -2,6 +2,7 @@ import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool, type PoolConfig } from 'pg';
 import { sql } from 'drizzle-orm';
 import * as schema from './schema.ts';
+import { createInMemoryPgPool } from './inMemoryDb.ts';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -60,6 +61,14 @@ export function buildPoolConfig(): PoolConfig {
 
 export function createPool(): Pool {
   if (!global._postgresPool) {
+    // If no external database is configured, activate in-memory PostgreSQL engine (pg-mem)
+    if (!process.env.DATABASE_URL && !process.env.INSTANCE_CONNECTION_NAME) {
+      console.warn('[PostgreSQL Pool] No DATABASE_URL or INSTANCE_CONNECTION_NAME provided — using in-memory PostgreSQL engine (pg-mem)');
+      const { pool: memPool } = createInMemoryPgPool();
+      global._postgresPool = memPool;
+      return memPool;
+    }
+
     const config = buildPoolConfig();
     const pool = new Pool(config);
 

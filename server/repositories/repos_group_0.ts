@@ -413,12 +413,18 @@ export class UserRepository implements IUserRepository {
   }
 
   async createMembership(tenantId: string, userId: string, role: UserRole): Promise<void> {
-    await db.insert(schema.tenantMemberships).values({
-      id: `mem_${tenantId}_${userId}`,
-      tenantId,
-      userId,
-      role,
-    }).onConflictDoNothing();
+    await db
+      .insert(schema.tenantMemberships)
+      .values({
+        id: `mem_${tenantId}_${userId}`,
+        tenantId,
+        userId,
+        role,
+      })
+      .onConflictDoUpdate({
+        target: [schema.tenantMemberships.tenantId, schema.tenantMemberships.userId],
+        set: { role, updatedAt: new Date() },
+      });
   }
 
   private mapUser(u: typeof schema.users.$inferSelect): User {
@@ -428,10 +434,11 @@ export class UserRepository implements IUserRepository {
       email: u.email,
       name: u.name,
       avatarUrl: u.avatarUrl || undefined,
+      emailVerified: true,
       role: 'MEMBER' as UserRole,
       saasCustomerId: undefined,
       createdAt: u.createdAt.toISOString(),
       updatedAt: u.updatedAt.toISOString(),
-    } as User;
+    };
   }
 }

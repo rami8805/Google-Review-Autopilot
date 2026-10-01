@@ -136,7 +136,9 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
 
     // 3. List Google Business Profile locations for this account
     const googleLocations = await googleService.listLocations(tokens.accessToken, tokens.accountId);
-    const primary = googleLocations[0];
+    const primary = (req.body?.selectedLocationId
+      ? googleLocations.find((loc) => loc.locationId === req.body.selectedLocationId)
+      : null) || googleLocations[0];
 
     if (!primary) {
       res.status(422).json({
@@ -224,6 +226,7 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
         googleAccountId: tokens.accountId,
         googleLocationId: primary.locationId,
         locationName: primary.locationName,
+        totalLocationsFound: googleLocations.length,
       },
       timestamp: new Date().toISOString(),
     });
@@ -234,6 +237,7 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
       data: {
         connected: true,
         location: savedLocation,
+        availableLocations: googleLocations,
         connection: {
           id: savedConnection.id,
           status: savedConnection.status,

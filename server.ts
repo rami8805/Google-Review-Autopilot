@@ -34,7 +34,7 @@ async function startServer() {
 
   const { default: apiRouter } = await import('./server/routes/index.ts');
   const app = express();
-  const PORT = parseInt(process.env.PORT || '3000', 10);
+  const PORT = 3000;
   const isProduction = process.env.NODE_ENV === 'production';
 
   // Trust proxy when behind Cloud Load Balancing / Cloud Run
@@ -42,7 +42,14 @@ async function startServer() {
     app.set('trust proxy', 1);
   }
 
-  app.use(express.json({ limit: '1mb' }));
+  app.use(
+    express.json({
+      limit: '1mb',
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf.toString('utf8');
+      },
+    })
+  );
 
   // Mount API Gateway routes
   app.use('/api', apiRouter);
@@ -94,7 +101,7 @@ async function startServer() {
     });
   }
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', async () => {
     console.log(
       JSON.stringify({
         level: 'info',
@@ -104,6 +111,16 @@ async function startServer() {
         timestamp: new Date().toISOString(),
       })
     );
+
+    // Auto-seed in-memory database with demo tenant & reviews if no external DB is configured
+    if (!process.env.DATABASE_URL && !process.env.INSTANCE_CONNECTION_NAME) {
+      try {
+        const { seedDatabase } = await import('./server/db/seed.ts');
+        await seedDatabase();
+      } catch (seedErr) {
+        console.warn('[server] In-memory seed warning:', (seedErr as Error).message);
+      }
+    }
   });
 
   // Graceful shutdown for Cloud Run / k8s

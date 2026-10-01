@@ -19,12 +19,14 @@ router.post('/paddle', async (req: Request, res: Response) => {
     return;
   }
 
-  // Handle raw body string or JSON stringified body
-  const rawBody = typeof req.body === 'string'
-    ? req.body
-    : Buffer.isBuffer(req.body)
-    ? req.body.toString('utf-8')
-    : JSON.stringify(req.body);
+  // Prefer unparsed raw body string captured before JSON deserialization
+  const rawBody =
+    (req as any).rawBody ||
+    (typeof req.body === 'string'
+      ? req.body
+      : Buffer.isBuffer(req.body)
+      ? req.body.toString('utf-8')
+      : JSON.stringify(req.body));
 
   const result = await paddleService.processWebhookEvent(rawBody, signature);
 

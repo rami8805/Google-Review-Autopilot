@@ -42,7 +42,12 @@ export class GeminiAiReplyEngine implements IAiReplyEngine {
     if (key && key !== 'MY_GEMINI_API_KEY') {
       this.aiClient = new GoogleGenAI({ apiKey: key });
     }
-    this.modelName = modelName;
+    // Automatically map deprecated or unavailable models to current gemini-3.8-flash
+    const targetModel =
+      modelName && !modelName.includes('2.0') && !modelName.includes('1.5')
+        ? modelName
+        : 'gemini-3.8-flash';
+    this.modelName = targetModel;
   }
 
   async assessRisk(reviewText: string, rating: number): Promise<RiskAssessment> {

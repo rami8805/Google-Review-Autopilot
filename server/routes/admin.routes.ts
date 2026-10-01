@@ -41,18 +41,39 @@ const staffNotesMap = new Map<string, Array<{ id: string; author: string; note: 
 // GET /api/admin/metrics
 router.get('/metrics', async (_req, res) => {
   const tenants = await tenantRepo.listAll();
-  const allAudits = await auditRepo.listAll();
+
+  let totalLocations = 0;
+  let totalReviews = 0;
+  let autoPublishedCount = 0;
+  let approvalQueueCount = 0;
+  let criticalRisksCount = 0;
+
+  for (const t of tenants) {
+    const locs = await googleRepo.listLocations(t.id);
+    totalLocations += locs.length;
+    const revs = await reviewRepo.listByTenant(t.id);
+    totalReviews += revs.length;
+    for (const r of revs) {
+      const reply = r.replyId ? await replyRepo.getById(t.id, r.replyId) : null;
+      if (reply?.status === 'AUTO_PUBLISHED') autoPublishedCount++;
+      if (reply?.status === 'PENDING_APPROVAL') approvalQueueCount++;
+      if (r.riskAssessment?.riskLevel === 'CRITICAL') criticalRisksCount++;
+    }
+  }
+
+  const autoPublishedPercentage =
+    totalReviews > 0 ? parseFloat(((autoPublishedCount / totalReviews) * 100).toFixed(1)) : 100.0;
 
   res.json({
     success: true,
     data: {
-      totalSaaSCustomers: tenants.length + 147,
-      activeSubscribers: tenants.filter((t) => t.status === 'ACTIVE').length + 141,
-      totalLocationsManaged: 184,
-      reviewsProcessedLast30Days: 4120,
-      autoPublishedPercentage: 78.4,
-      approvalQueueCount: 4,
-      criticalRisksDetected: 1,
+      totalSaaSCustomers: tenants.length,
+      activeSubscribers: tenants.filter((t) => t.status === 'ACTIVE').length,
+      totalLocationsManaged: totalLocations,
+      reviewsProcessedLast30Days: totalReviews,
+      autoPublishedPercentage,
+      approvalQueueCount,
+      criticalRisksDetected: criticalRisksCount,
     },
     meta: { timestamp: new Date().toISOString() },
   });
@@ -62,17 +83,24 @@ router.get('/metrics', async (_req, res) => {
 router.get('/customers', async (_req, res) => {
   const tenants = await tenantRepo.listAll();
 
-  const customerList = tenants.map((t) => ({
-    id: t.id,
-    name: t.name,
-    billingEmail: t.billingEmail,
-    status: t.status,
-    locationsCount: 1,
-    plan: 'STARTER',
-    subscriptionStatus: 'ACTIVE',
-    reviewsCount: 3,
-    createdAt: t.createdAt,
-  }));
+  const customerList = await Promise.all(
+    tenants.map(async (t) => {
+      const locs = await googleRepo.listLocations(t.id);
+      const sub = await billingRepo.getSubscription(t.id);
+      const revs = await reviewRepo.listByTenant(t.id);
+      return {
+        id: t.id,
+        name: t.name,
+        billingEmail: t.billingEmail,
+        status: t.status,
+        locationsCount: locs.length,
+        plan: sub?.plan || 'STARTER',
+        subscriptionStatus: sub?.status || 'TRIALING',
+        reviewsCount: revs.length,
+        createdAt: t.createdAt,
+      };
+    })
+  );
 
   res.json({ success: true, data: customerList });
 });

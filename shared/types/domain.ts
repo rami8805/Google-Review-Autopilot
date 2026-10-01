@@ -16,12 +16,13 @@ export type UserRole = 'OWNER' | 'ADMIN' | 'MEMBER' | 'SUPPORT_AGENT' | 'SUPER_A
 
 export interface User {
   id: string;
+  identitySubject?: string;
   email: string;
   name: string;
   role: UserRole;
-  saasCustomerId: string;
+  saasCustomerId?: string;
   avatarUrl?: string;
-  emailVerified: boolean;
+  emailVerified?: boolean;
   createdAt: string;
   updatedAt: string;
 }

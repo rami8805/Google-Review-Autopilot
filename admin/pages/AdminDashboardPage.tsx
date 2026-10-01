@@ -1,11 +1,49 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AdminHeader } from '../components/AdminHeader';
 import { TenantOverview } from '../features/TenantOverview';
 import { AdminSupportDesk } from '../features/AdminSupportDesk';
 import { Activity, ShieldAlert, Cpu, CheckCircle } from 'lucide-react';
+import { useAuth } from '../../src/context/AuthContext';
 
 export const AdminDashboardPage: React.FC = () => {
+  const { getAuthHeaders } = useAuth();
   const [activeTab, setActiveTab] = useState('tenants');
+  const [metrics, setMetrics] = useState<{
+    totalSaaSCustomers: number;
+    activeSubscribers: number;
+    totalLocationsManaged: number;
+    reviewsProcessedLast30Days: number;
+    autoPublishedPercentage: number;
+    approvalQueueCount: number;
+    criticalRisksDetected: number;
+  }>({
+    totalSaaSCustomers: 1,
+    activeSubscribers: 1,
+    totalLocationsManaged: 1,
+    reviewsProcessedLast30Days: 0,
+    autoPublishedPercentage: 100,
+    approvalQueueCount: 0,
+    criticalRisksDetected: 0,
+  });
+
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const res = await fetch('/api/admin/metrics', {
+          headers: getAuthHeaders(),
+        });
+        if (res.ok) {
+          const payload = await res.json();
+          if (payload?.success && payload.data) {
+            setMetrics(payload.data);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch admin metrics:', err);
+      }
+    };
+    fetchMetrics();
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
@@ -19,26 +57,26 @@ export const AdminDashboardPage: React.FC = () => {
               <span>Active SaaSCustomers</span>
               <Activity className="w-4 h-4 text-indigo-400" />
             </div>
-            <div className="mt-2 text-2xl font-bold text-slate-100">142</div>
-            <div className="mt-1 text-[11px] text-emerald-400">+12% this month</div>
+            <div className="mt-2 text-2xl font-bold text-slate-100">{metrics.totalSaaSCustomers}</div>
+            <div className="mt-1 text-[11px] text-emerald-400">{metrics.activeSubscribers} Active Subscribers</div>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
             <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-              <span>Google API Sync Status</span>
+              <span>Managed Locations</span>
               <CheckCircle className="w-4 h-4 text-emerald-400" />
             </div>
-            <div className="mt-2 text-2xl font-bold text-slate-100">Healthy</div>
-            <div className="mt-1 text-[11px] text-slate-400">99.98% webhook delivery</div>
+            <div className="mt-2 text-2xl font-bold text-slate-100">{metrics.totalLocationsManaged}</div>
+            <div className="mt-1 text-[11px] text-slate-400">Google Business Profiles</div>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
             <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-              <span>Gemini AI Safety Rate</span>
+              <span>Auto-Publish Rate</span>
               <Cpu className="w-4 h-4 text-blue-400" />
             </div>
-            <div className="mt-2 text-2xl font-bold text-slate-100">100%</div>
-            <div className="mt-1 text-[11px] text-slate-400">0 unauthorized commitments</div>
+            <div className="mt-2 text-2xl font-bold text-slate-100">{metrics.autoPublishedPercentage}%</div>
+            <div className="mt-1 text-[11px] text-slate-400">{metrics.reviewsProcessedLast30Days} reviews processed</div>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
@@ -46,8 +84,8 @@ export const AdminDashboardPage: React.FC = () => {
               <span>Critical Risk Reviews</span>
               <ShieldAlert className="w-4 h-4 text-amber-400" />
             </div>
-            <div className="mt-2 text-2xl font-bold text-slate-100">12</div>
-            <div className="mt-1 text-[11px] text-amber-400">All locked to manual approval</div>
+            <div className="mt-2 text-2xl font-bold text-slate-100">{metrics.criticalRisksDetected}</div>
+            <div className="mt-1 text-[11px] text-amber-400">{metrics.approvalQueueCount} in approval queue</div>
           </div>
         </div>
 

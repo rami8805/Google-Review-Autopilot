@@ -37,9 +37,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUserId(fbUser.uid);
             setEmail(fbUser.email || 'user@example.com');
             setName(fbUser.displayName || fbUser.email?.split('@')[0] || 'User');
-            // If user's email matches admin email, assign SUPER_ADMIN
-            if (fbUser.email === 'ouaretchoayb@gmail.com') {
-              setRole('SUPER_ADMIN');
+
+            // Authoritatively resolve role and tenant membership from database
+            try {
+              const meRes = await fetch('/api/auth/me', {
+                headers: { Authorization: `Bearer ${idToken}` },
+              });
+              if (meRes.ok) {
+                const meData = await meRes.json();
+                if (meData?.data?.user?.role) setRole(meData.data.user.role);
+                if (meData?.data?.saasCustomer?.id) setTenantId(meData.data.saasCustomer.id);
+              }
+            } catch (err) {
+              console.warn('Could not fetch authoritative user profile:', err);
             }
           } catch (e) {
             console.warn('Failed to retrieve ID token from Firebase user:', e);
@@ -61,8 +71,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserId(cred.user.uid);
         setEmail(cred.user.email || '');
         setName(cred.user.displayName || 'Google User');
-        if (cred.user.email === 'ouaretchoayb@gmail.com') {
-          setRole('SUPER_ADMIN');
+
+        try {
+          const meRes = await fetch('/api/auth/me', {
+            headers: { Authorization: `Bearer ${idToken}` },
+          });
+          if (meRes.ok) {
+            const meData = await meRes.json();
+            if (meData?.data?.user?.role) setRole(meData.data.user.role);
+            if (meData?.data?.saasCustomer?.id) setTenantId(meData.data.saasCustomer.id);
+          }
+        } catch {
+          // Dev / network fallback
         }
       }
     } catch (err) {

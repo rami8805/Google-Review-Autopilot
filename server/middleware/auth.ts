@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { UserRole } from '../../shared/types/domain.ts';
-import { UserRepository } from '../repositories/postgresRepositories.ts';
+import { UserRepository, TenantRepository } from '../repositories/postgresRepositories.ts';
 import { adminAuth } from '../lib/firebase-admin.ts';
 
 export interface AuthenticatedContext {
@@ -16,6 +16,7 @@ export interface AuthenticatedRequest extends Request {
 }
 
 const userRepo = new UserRepository();
+const tenantRepo = new TenantRepository();
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -129,14 +130,57 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
       };
     }
 
-    // First login — provisional context (caller should complete onboarding)
-    return {
-      userId: `usr_${identitySubject.substring(0, 8)}`,
-      identitySubject,
-      email,
-      tenantId: `tenant_${identitySubject.substring(0, 8)}`,
-      role: 'OWNER',
-    };
+    // First login — bootstrap initial tenant, user, and owner membership in PostgreSQL
+    const tenantId = `saas_cust_${identitySubject.substring(0, 10)}`;
+    const userId = `usr_${identitySubject.substring(0, 10)}`;
+
+    try {
+      let existingTenant = await tenantRepo.getById(tenantId);
+      if (!existingTenant) {
+        existingTenant = await tenantRepo.create({
+          id: tenantId,
+          name: email ? email.split('@')[0] : 'My Business',
+          billingEmail: email,
+          status: 'ACTIVE',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      let createdUser = await userRepo.getById(userId);
+      if (!createdUser) {
+        createdUser = await userRepo.create({
+          id: userId,
+          identitySubject,
+          email,
+          name: email ? email.split('@')[0] : 'User',
+          role: 'OWNER',
+          saasCustomerId: tenantId,
+          emailVerified: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      await userRepo.createMembership(tenantId, userId, 'OWNER');
+
+      return {
+        userId,
+        identitySubject,
+        email,
+        tenantId,
+        role: 'OWNER',
+      };
+    } catch (bootErr) {
+      console.warn('[auth] Error bootstrapping tenant on first login:', bootErr);
+      return {
+        userId,
+        identitySubject,
+        email,
+        tenantId,
+        role: 'OWNER',
+      };
+    }
   } catch {
     return null;
   }
