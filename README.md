@@ -146,15 +146,24 @@ npm run dev
 
 ---
 
+### Google Business Profile OAuth Configuration
+
+- Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` for the OAuth web client.
+- Set `GOOGLE_REDIRECT_URI` to the exact frontend callback URL, for example `http://localhost:3000/onboarding` in local development.
+- Register that exact same URL in the OAuth client's **Authorized redirect URIs**. In production, use the deployed HTTPS application origin plus `/onboarding`.
+- The user must remain signed in with a real Firebase ID token when Google redirects back to the app. The onboarding wizard posts the returned `code` and `state` to the authenticated backend callback; demo/test bearer tokens are not accepted for this step.
+- Enable and obtain the required access to the Google Business Profile APIs for the Google Cloud project. API access and OAuth verification/approval may be required by Google.
+- Never put the Google client secret or Google access/refresh tokens in frontend configuration. Tokens are stored server-side and must be protected by `TOKEN_ENCRYPTION_KEY`.
+
 ## 6. End-to-End User Journeys
 
 ### A. Customer Onboarding & Setup
 1. Open the app or click **Landing / Signup** in the top navigation.
 2. Click **Start 14-Day Free Trial** or **Get Started** to enter business details (e.g. *Bayview Dental*).
-3. Authorize Google Business Profile in Step 1.
-4. Confirm discovered location and verified Google Place ID in Step 2.
-5. Watch Gemini calibrate review risk scoring and draft a safe response in Step 3.
-6. Confirm baseline safety rules in Step 4 and enter the live customer dashboard.
+3. Sign in to the app with a real Firebase-authenticated user, then authorize Google Business Profile in Step 1.
+4. Confirm the business location returned by the Google Business Profile API in Step 2.
+5. Run the first real review sync in Step 3; the wizard displays the actual sync counts and, when available, a review and its persisted reply draft.
+6. Open the dashboard after the sync succeeds. No sample review or simulated OAuth success is used in this flow.
 
 ### B. Inbound Google Review Processing (Phase 4 Simulation)
 1. Go to the **Approval Queue** tab.
