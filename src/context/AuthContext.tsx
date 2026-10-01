@@ -11,6 +11,7 @@ export interface AuthContextType {
   tenantId: string;
   role: UserRole;
   isAuthenticated: boolean;
+  isLoadingAuth: boolean;
   loginAs: (role: UserRole, targetTenantId?: string) => void;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
@@ -20,16 +21,28 @@ export interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string>('mock_access_token');
-  const [userId, setUserId] = useState<string>('usr_demo_01');
-  const [email, setEmail] = useState<string>('owner@downtowndental-sf.com');
-  const [name, setName] = useState<string>('Dr. Sarah Lin');
-  const [tenantId, setTenantId] = useState<string>('saas_cust_demo_01');
-  const [role, setRole] = useState<UserRole>('OWNER');
+  // Check if an explicit dev/test session was saved in sessionStorage
+  const savedToken = typeof window !== 'undefined' ? sessionStorage.getItem('dev_auth_token') : null;
+  const savedRole = typeof window !== 'undefined' ? (sessionStorage.getItem('dev_auth_role') as UserRole) : null;
+  const savedTenant = typeof window !== 'undefined' ? sessionStorage.getItem('dev_auth_tenant') : null;
+  const savedEmail = typeof window !== 'undefined' ? sessionStorage.getItem('dev_auth_email') : null;
+  const savedName = typeof window !== 'undefined' ? sessionStorage.getItem('dev_auth_name') : null;
+
+  const [token, setToken] = useState<string | null>(savedToken);
+  const [userId, setUserId] = useState<string>(savedToken ? `usr_${savedRole || 'owner'}` : '');
+  const [email, setEmail] = useState<string>(savedEmail || '');
+  const [name, setName] = useState<string>(savedName || '');
+  const [tenantId, setTenantId] = useState<string>(savedTenant || '');
+  const [role, setRole] = useState<UserRole>(savedRole || 'MEMBER');
+  const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     try {
       const unsubscribe = onAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
+        if (!isMounted) return;
+
         if (fbUser) {
           try {
             const idToken = await fbUser.getIdToken();
@@ -54,13 +67,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } catch (e) {
             console.warn('Failed to retrieve ID token from Firebase user:', e);
           }
+        } else if (!savedToken) {
+          // No Firebase user and no saved dev session
+          setToken(null);
+          setUserId('');
+          setEmail('');
+          setName('');
+          setTenantId('');
+          setRole('MEMBER');
         }
+
+        setIsLoadingAuth(false);
       });
-      return () => unsubscribe();
+
+      return () => {
+        isMounted = false;
+        unsubscribe();
+      };
     } catch (e) {
       console.warn('Firebase onAuthStateChanged not active:', e);
+      setIsLoadingAuth(false);
     }
-  }, []);
+  }, [savedToken]);
 
   const loginWithGoogle = async () => {
     try {
@@ -87,6 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err) {
       console.error('Failed to sign in with Google:', err);
+      throw err;
     }
   };
 
@@ -96,26 +125,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {
       console.warn('Firebase sign out error:', e);
     }
-    setToken('');
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('dev_auth_token');
+      sessionStorage.removeItem('dev_auth_role');
+      sessionStorage.removeItem('dev_auth_tenant');
+      sessionStorage.removeItem('dev_auth_email');
+      sessionStorage.removeItem('dev_auth_name');
+    }
+    setToken(null);
     setUserId('');
     setEmail('');
+    setName('');
     setTenantId('');
     setRole('MEMBER');
   };
 
   const loginAs = (newRole: UserRole, targetTenantId = 'saas_cust_demo_01') => {
     const newToken = `test_token_usr_${Date.now()}_${targetTenantId}_${newRole.toLowerCase()}`;
+    const userEmail = `${newRole.toLowerCase()}@${targetTenantId}.com`;
+    const userName = newRole === 'OWNER' ? 'Business Owner' : `${newRole} User`;
+
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('dev_auth_token', newToken);
+      sessionStorage.setItem('dev_auth_role', newRole);
+      sessionStorage.setItem('dev_auth_tenant', targetTenantId);
+      sessionStorage.setItem('dev_auth_email', userEmail);
+      sessionStorage.setItem('dev_auth_name', userName);
+    }
+
     setToken(newToken);
     setRole(newRole);
     setTenantId(targetTenantId);
     setUserId(`usr_${newRole.toLowerCase()}`);
-    setEmail(`${newRole.toLowerCase()}@${targetTenantId}.com`);
-    setName(newRole === 'OWNER' ? 'Dr. Sarah Lin' : `${newRole} User`);
+    setEmail(userEmail);
+    setName(userName);
   };
 
   const getAuthHeaders = (): Record<string, string> => {
+    if (!token) {
+      return { 'Content-Type': 'application/json' };
+    }
     return {
-      'Authorization': `Bearer ${token}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     };
   };
@@ -130,6 +181,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         tenantId,
         role,
         isAuthenticated: Boolean(token),
+        isLoadingAuth,
         loginAs,
         loginWithGoogle,
         logout,
