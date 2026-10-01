@@ -112,8 +112,8 @@ async function startServer() {
       })
     );
 
-    // Auto-seed in-memory database with demo tenant & reviews if no external DB is configured
-    if (!process.env.DATABASE_URL && !process.env.INSTANCE_CONNECTION_NAME) {
+    // Auto-seed in-memory database with initial demo records in development/test
+    if (process.env.NODE_ENV !== 'production') {
       try {
         const { seedDatabase } = await import('./server/db/seed.ts');
         await seedDatabase();

@@ -97,7 +97,7 @@ export class GoogleBusinessProfileService implements IGoogleBusinessProfileProvi
       client_id: this.clientId,
       redirect_uri: this.redirectUri,
       response_type: 'code',
-      scope: 'https://www.googleapis.com/auth/business.manage',
+      scope: process.env.GOOGLE_BUSINESS_SCOPES || 'https://www.googleapis.com/auth/business.manage',
       access_type: 'offline',
       prompt: 'consent',
       include_granted_scopes: 'true',

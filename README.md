@@ -194,7 +194,7 @@ npm run dev
 | :--- | :--- | :--- | :--- |
 | **Google Business Profile** | OAuth 2.0 (`business.manage`) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | In-memory Google adapter simulates locations and review publishing |
 | **Google Gemini AI** | `@google/genai` TypeScript SDK | `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.8-flash` | Deterministic template fallback with morphological prompt injection defense |
-| **Stripe Billing** | Customer Portal & Webhooks | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | In-memory subscription manager with simulated tier switching |
+| **Paddle Billing** | Subscriptions & Webhooks | `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET` | Sandbox billing with webhook verification & tier gating |
 | **Notifications** | Resend / SMTP Adapter | `RESEND_API_KEY`, `NOTIFICATION_FROM_EMAIL` | In-app notification queue and audit events log |
 
 ---
