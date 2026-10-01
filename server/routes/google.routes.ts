@@ -39,7 +39,7 @@ router.get('/connect', async (req: AuthenticatedRequest, res) => {
   try {
     const tenantId = req.auth!.tenantId;
     const userId = req.auth!.userId;
-    const state = `oauth_${tenantId}_${userId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const state = crypto.randomBytes(32).toString('hex');
 
     await oauthStateRepo.createState(tenantId, userId, state, 600); // 10 min TTL
 
@@ -365,7 +365,7 @@ router.post('/sync-reviews', async (req: AuthenticatedRequest, res) => {
             };
             const recentReplies = await replyRepo.listRecentByLocation(tenantId, location.id, 5);
             const { reply, result } = await reviewSyncJob.processIngestedReview({
-              review, brandVoice, rules,
+              review, brandVoice, rules, accessToken,
               recentReplies: recentReplies.map((item) => ({ proposedText: item.proposedText, publishedText: item.publishedText })),
             });
             await reviewRepo.createReviewAndReply(tenantId, review, reply);
