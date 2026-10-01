@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Router } from 'express';
 import { requireAuth, requireTenant, requireTenantOwnership, type AuthenticatedRequest } from '../middleware/auth.ts';
 import { GoogleBusinessProfileService } from '../services/google/googleProfileProvider.ts';
@@ -10,6 +11,7 @@ import {
   AutomationRuleRepository,
   AuditRepository,
   IdempotencyRepository,
+  GoogleConnectionRepository,
 } from '../repositories/postgresRepositories.ts';
 
 const router = Router();
@@ -23,6 +25,7 @@ const brandVoiceRepo = new BrandVoiceRepository();
 const ruleRepo = new AutomationRuleRepository();
 const auditRepo = new AuditRepository();
 const idempotencyRepo = new IdempotencyRepository();
+const googleRepo = new GoogleConnectionRepository();
 
 router.use(requireAuth);
 router.use(requireTenant);
@@ -92,8 +95,35 @@ router.post('/:id/approve', async (req: AuthenticatedRequest, res) => {
   const { editedReplyText } = req.body || {};
   const textToPublish = editedReplyText || reply.proposedText;
 
-  // Publish via Google Provider Adapter
-  await googleService.publishReviewReply('mock_access_token', review.googleReviewName, textToPublish);
+  if (typeof textToPublish !== 'string' || !textToPublish.trim()) {
+    res.status(400).json({ success: false, error: { code: 'EMPTY_REPLY', message: 'Reply text must not be empty.' } });
+    return;
+  }
+  if (reply.guardResult?.decision === 'BLOCK' || reply.guardResult?.decision === 'BLOCK_AND_REGENERATE') {
+    res.status(409).json({ success: false, error: { code: 'REPLY_BLOCKED_BY_GUARD', message: 'This reply was blocked by the safety checks and cannot be published.' } });
+    return;
+  }
+
+  const connection = await googleRepo.getByLocationId(tenantId, review.businessLocationId);
+  const tokens = await googleRepo.getDecryptedTokens(tenantId, review.businessLocationId);
+  if (!connection || connection.status !== 'CONNECTED' || !tokens) {
+    res.status(409).json({ success: false, error: { code: 'GOOGLE_NOT_CONNECTED', message: 'Reconnect Google Business Profile before publishing this reply.' } });
+    return;
+  }
+
+  let accessToken = tokens.accessToken;
+  if (!tokens.tokenExpiry || new Date(tokens.tokenExpiry).getTime() <= Date.now() + 60_000) {
+    if (!tokens.refreshToken) {
+      res.status(409).json({ success: false, error: { code: 'GOOGLE_REAUTH_REQUIRED', message: 'Google authorization expired. Reconnect your Google Business Profile.' } });
+      return;
+    }
+    const refreshed = await googleService.refreshAccessToken(tokens.refreshToken);
+    accessToken = refreshed.accessToken;
+    await googleRepo.updateTokens(tenantId, connection.id, accessToken, undefined, new Date(Date.now() + refreshed.expiresIn * 1000).toISOString());
+  }
+
+  // Only mark the reply published after Google confirms the write succeeded.
+  await googleService.publishReviewReply(accessToken, review.googleReviewName, textToPublish);
 
   const updatedReply = await replyRepo.update(tenantId, reply.id, {
     status: 'MANUALLY_PUBLISHED',
@@ -104,7 +134,7 @@ router.post('/:id/approve', async (req: AuthenticatedRequest, res) => {
   });
 
   await auditRepo.logEvent({
-    id: `audit_${Date.now()}`,
+    id: `audit_${crypto.randomUUID()}`,
     saasCustomerId: tenantId,
     actorUserId: req.auth!.userId,
     actorType: 'USER',
