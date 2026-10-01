@@ -20,12 +20,12 @@ export interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string>('mock_access_token');
-  const [userId, setUserId] = useState<string>('usr_demo_01');
-  const [email, setEmail] = useState<string>('owner@downtowndental-sf.com');
-  const [name, setName] = useState<string>('Dr. Sarah Lin');
-  const [tenantId, setTenantId] = useState<string>('saas_cust_demo_01');
-  const [role, setRole] = useState<UserRole>('OWNER');
+  const [token, setToken] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('');
+  const [email, setEmail] = useState<string>('');
+  const [name, setName] = useState<string>('');
+  const [tenantId, setTenantId] = useState<string>('');
+  const [role, setRole] = useState<UserRole>('MEMBER');
 
   useEffect(() => {
     try {
@@ -84,6 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginAs = (newRole: UserRole, targetTenantId = 'saas_cust_demo_01') => {
+    if (import.meta.env.PROD) throw new Error('Demo role switching is disabled in production');
     const newToken = `test_token_usr_${Date.now()}_${targetTenantId}_${newRole.toLowerCase()}`;
     setToken(newToken);
     setRole(newRole);
