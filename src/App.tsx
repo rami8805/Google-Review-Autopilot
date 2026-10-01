@@ -351,14 +351,17 @@ function AppContent() {
 
   const pendingApprovalsCount = reviews.filter((r) => r.reply?.status === 'PENDING_APPROVAL').length;
   const isAdminView = locationPath.pathname.startsWith('/admin');
+  const isLandingView = locationPath.pathname === '/landing';
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
-      <Navbar
-        pendingCount={pendingApprovalsCount}
-        locationName={location.locationName}
-        isConnected={location.isConnected}
-      />
+      {!isLandingView && (
+        <Navbar
+          pendingCount={pendingApprovalsCount}
+          locationName={location.locationName}
+          isConnected={location.isConnected}
+        />
+      )}
 
       {feedbackToast && (
         <div
@@ -479,12 +482,14 @@ function AppContent() {
         </Routes>
       </main>
 
-      <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
-        <p>Google Review Autopilot &bull; Production Multi-Tenant Architecture &bull; Paddle Billing Sandbox</p>
-        <p className="mt-1 text-[11px] text-slate-400">
-          Google Cloud SQL PostgreSQL &bull; Reply Guard 8 Safety Gates &bull; Google Identity Platform RBAC
-        </p>
-      </footer>
+      {!isLandingView && (
+        <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+          <p>Google Review Autopilot &bull; Production Multi-Tenant Architecture &bull; Paddle Billing Sandbox</p>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Google Cloud SQL PostgreSQL &bull; Reply Guard 8 Safety Gates &bull; Google Identity Platform RBAC
+          </p>
+        </footer>
+      )}
     </div>
   );
 }
