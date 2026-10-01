@@ -255,8 +255,16 @@ export class CloudTasksService {
 
           // 7. Publish to Google
           const textToPublish = payload.textToPublish || payload.proposedText;
-          const connection = await this.googleRepo.getDecryptedTokens(tenantId, review.businessLocationId);
+          let connection = await this.googleRepo.getDecryptedTokens(tenantId, review.businessLocationId);
           if (!connection?.accessToken) throw new PermanentError('Google connection token unavailable');
+          if (connection.tokenExpiry && new Date(connection.tokenExpiry).getTime() <= Date.now() && connection.refreshToken) {
+            const refreshed = await this.googleService.refreshAccessToken(connection.refreshToken);
+            const stored = await this.googleRepo.getByLocationId(tenantId, review.businessLocationId);
+            if (!stored) throw new PermanentError('Google connection disappeared during token refresh');
+            const expiry = new Date(Date.now() + refreshed.expiresIn * 1000).toISOString();
+            await this.googleRepo.updateTokens(tenantId, stored.id, refreshed.accessToken, undefined, expiry);
+            connection = { ...connection, accessToken: refreshed.accessToken, tokenExpiry: expiry };
+          }
           await this.googleService.publishReviewReply(connection.accessToken, review.googleReviewName, textToPublish);
 
           // 8. Update reply record
