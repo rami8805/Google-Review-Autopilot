@@ -79,6 +79,7 @@ export class GoogleBusinessProfileService implements IGoogleBusinessProfileProvi
       response_type: 'code',
       scope: 'https://www.googleapis.com/auth/business.manage',
       access_type: 'offline',
+      response_mode: 'form_post',
       prompt: 'consent',
       state,
     });
