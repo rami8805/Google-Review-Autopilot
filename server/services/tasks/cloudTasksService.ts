@@ -11,6 +11,7 @@ import {
 import type { JobRecord } from '../../repositories/types.ts';
 import { GoogleBusinessProfileService } from '../google/googleProfileProvider.ts';
 import { NotificationService } from '../notifications/notificationService.ts';
+import { CloudTasksClient } from '@google-cloud/tasks';
 
 export type TaskQueueName = 'review-sync' | 'reply-publication' | 'notifications';
 
@@ -40,6 +41,7 @@ export class CloudTasksService {
   private auditRepo: AuditRepository;
   private googleService: GoogleBusinessProfileService;
   private notificationService: NotificationService;
+  private cloudTasks: CloudTasksClient | null;
 
   constructor() {
     this.jobRepo = new JobRecordRepository();
@@ -52,6 +54,7 @@ export class CloudTasksService {
     this.auditRepo = new AuditRepository();
     this.googleService = new GoogleBusinessProfileService();
     this.notificationService = new NotificationService();
+    this.cloudTasks = process.env.NODE_ENV === 'production' ? new CloudTasksClient() : null;
   }
 
   /**
@@ -106,14 +109,34 @@ export class CloudTasksService {
       },
     });
 
-    // In local development / in-process mode or for tests:
-    setImmediate(async () => {
-      try {
-        await this.executeJob(jobId, correlationId);
-      } catch (err) {
-        console.warn(`[CloudTasks][${correlationId}] Background execution error for ${jobId}:`, (err as Error).message);
+    if (this.cloudTasks) {
+      const projectId = process.env.CLOUD_TASKS_PROJECT_ID;
+      const location = process.env.CLOUD_TASKS_LOCATION;
+      const queue = process.env.CLOUD_TASKS_QUEUE_NAME || queueName;
+      const serviceUrl = process.env.APP_BASE_URL;
+      if (!projectId || !location || !serviceUrl) throw new Error('Cloud Tasks production configuration is incomplete');
+      const parent = this.cloudTasks.queuePath(projectId, location, queue);
+      const task: any = {
+        httpRequest: {
+          httpMethod: 'POST',
+          url: `${serviceUrl.replace(/\/$/, '')}/api/tasks/${queue}`,
+          headers: { 'Content-Type': 'application/json' },
+          body: Buffer.from(JSON.stringify({ jobId, correlationId })),
+        },
+      };
+      if (process.env.CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL) {
+        task.httpRequest.oidcToken = {
+          serviceAccountEmail: process.env.CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL,
+          audience: serviceUrl,
+        };
       }
-    });
+      await this.cloudTasks.createTask({ parent, task });
+    } else {
+      setImmediate(async () => {
+        try { await this.executeJob(jobId, correlationId); }
+        catch (err) { console.warn(`[CloudTasks][${correlationId}] Background execution error for ${jobId}:`, (err as Error).message); }
+      });
+    }
 
     return job;
   }
@@ -232,11 +255,9 @@ export class CloudTasksService {
 
           // 7. Publish to Google
           const textToPublish = payload.textToPublish || payload.proposedText;
-          await this.googleService.publishReviewReply(
-            payload.accessToken || 'mock_access_token',
-            review.googleReviewName,
-            textToPublish
-          );
+          const connection = await this.googleRepo.getDecryptedTokens(tenantId, review.businessLocationId);
+          if (!connection?.accessToken) throw new PermanentError('Google connection token unavailable');
+          await this.googleService.publishReviewReply(connection.accessToken, review.googleReviewName, textToPublish);
 
           // 8. Update reply record
           if (review.replyId) {
