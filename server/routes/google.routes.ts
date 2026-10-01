@@ -341,6 +341,83 @@ router.post('/sync-reviews', async (req: AuthenticatedRequest, res) => {
   const rules = await ruleRepo.listByTenant(tenantId);
   const recentReplies = await replyRepo.listRecentByLocation(tenantId, locationId, 5);
 
+  // Production sync always reads real Google Business Profile reviews.
+  // Synthetic presets remain available only outside production for local demos/tests.
+  if (process.env.NODE_ENV === 'production') {
+    const connectionRecord = await googleRepo.getByLocationId(tenantId, locationId);
+    if (!connectionRecord?.googleLocationName) {
+      res.status(409).json({ success: false, error: { code: 'GOOGLE_CONNECTION_REQUIRED', message: 'Connect a Google Business Profile location before syncing reviews.' } });
+      return;
+    }
+
+    let connection = await googleRepo.getDecryptedTokens(tenantId, locationId);
+    if (!connection?.accessToken) {
+      res.status(409).json({ success: false, error: { code: 'GOOGLE_CONNECTION_REQUIRED', message: 'Reconnect Google Business Profile before syncing reviews.' } });
+      return;
+    }
+    if (connection.tokenExpiry && new Date(connection.tokenExpiry).getTime() <= Date.now() && connection.refreshToken) {
+      const refreshed = await googleService.refreshAccessToken(connection.refreshToken);
+      const expiry = new Date(Date.now() + refreshed.expiresIn * 1000).toISOString();
+      await googleRepo.updateTokens(tenantId, connectionRecord.id, refreshed.accessToken, undefined, expiry);
+      connection = { ...connection, accessToken: refreshed.accessToken, tokenExpiry: expiry };
+    }
+
+    const googleReviews = await googleService.listReviews(connection.accessToken, connectionRecord.googleLocationName);
+    const ingested: Array<{ review: Review; reply: any; result: any }> = [];
+
+    for (const googleReview of googleReviews.reviews) {
+      const existing = await reviewRepo.getByGoogleReviewName(tenantId, googleReview.name);
+      if (existing) continue;
+
+      const review: Review = {
+        id: `rev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        saasCustomerId: tenantId,
+        businessLocationId: locationId,
+        googleReviewId: googleReview.reviewId,
+        googleReviewName: googleReview.name,
+        author: googleReview.reviewer,
+        starRating: googleReview.starRating,
+        comment: googleReview.comment,
+        reviewCreatedAt: googleReview.createTime,
+        updatedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+
+      const { reply, result } = await reviewSyncJob.processIngestedReview({
+        review,
+        brandVoice,
+        rules,
+        recentReplies: recentReplies.map((r) => ({ proposedText: r.proposedText, publishedText: r.publishedText })),
+      });
+
+      await reviewRepo.createReviewAndReply(tenantId, review, reply);
+      await auditRepo.logEvent({
+        id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        saasCustomerId: tenantId,
+        actorType: 'SYSTEM_JOB',
+        action: result.actionTaken === 'AUTO_PUBLISHED' ? 'AUTO_PUBLISHED_REPLY' : 'APPROVAL_REQUIRED',
+        targetResourceType: 'REVIEW',
+        targetResourceId: review.id,
+        details: { starRating: review.starRating, riskLevel: result.riskLevel, replyId: reply.id },
+        timestamp: new Date().toISOString(),
+      });
+      ingested.push({ review, reply, result });
+    }
+
+    const responsePayload = {
+      success: true,
+      data: {
+        syncedLocationId: locationId,
+        newReviewsFound: ingested.length,
+        ingestedReviews: ingested,
+      },
+      meta: { timestamp: new Date().toISOString() },
+    };
+    if (idempotencyKey) await idempotencyRepo.complete(tenantId, idempotencyKey, 'SYNC_REVIEWS', 200, responsePayload);
+    res.json(responsePayload);
+    return;
+  }
+
   const preset = req.body?.preset;
   let authorName = req.body?.authorName || 'Google Reviewer';
   let isAnonymous = Boolean(req.body?.isAnonymous);
