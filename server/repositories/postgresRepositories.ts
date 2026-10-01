@@ -1,24 +1,25 @@
 /**
- * PostgreSQL repository layer.
- * GoogleConnectionRepository lives in ./googleConnectionRepository.ts (encrypted tokens).
+ * Repository layer barrel — multi-tenant PostgreSQL via Drizzle.
+ * Google OAuth tokens are encrypted at rest (AES-256-GCM).
  */
 export { GoogleConnectionRepository } from './googleConnectionRepository.ts';
-
-// Temporary bootstrap: other repositories are loaded from the pre-split modules below.
-// Full class implementations restored in follow-up if this thin barrel is insufficient.
 export {
+  isUniqueConstraintError,
   ReviewRepository,
   ReplyRepository,
   TenantRepository,
   UserRepository,
+} from './repos_group_0.ts';
+export {
   BillingRepository,
   AutomationRuleRepository,
   BrandVoiceRepository,
   AuditRepository,
+} from './repos_group_1.ts';
+export {
   SupportRepository,
   NotificationRepository,
   IdempotencyRepository,
   JobRecordRepository,
   OAuthStateRepository,
-  isUniqueConstraintError,
-} from './postgresRepositories.legacy.ts';
+} from './repos_group_2.ts';
