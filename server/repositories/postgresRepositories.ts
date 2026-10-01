@@ -1,6 +1,7 @@
 /**
- * Repository layer barrel — multi-tenant PostgreSQL via Drizzle.
- * Google OAuth tokens encrypted at rest (AES-256-GCM).
+ * Repository layer barrel.
+ * GoogleConnectionRepository: AES-256-GCM token encryption at rest.
+ * Other repositories: see repos_group_0.ts and repos_remaining.ts
  */
 export { GoogleConnectionRepository } from './googleConnectionRepository.ts';
 export {
