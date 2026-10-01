@@ -31,6 +31,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isActivating, setIsActivating] = useState(false);
+  const [enableAutomation, setEnableAutomation] = useState(false);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [connectedLocation, setConnectedLocation] = useState<BusinessLocation | null>(
@@ -149,6 +151,39 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       setError(err instanceof Error ? err.message : 'Review sync failed.');
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleCompleteOnboarding = async () => {
+    setError('');
+    if (!connectedLocation) {
+      setError('A verified Google Business Profile location is required to finish onboarding.');
+      return;
+    }
+
+    if (!enableAutomation) {
+      onComplete({ ...connectedLocation, automationEnabled: false });
+      return;
+    }
+
+    setIsActivating(true);
+    try {
+      const response = await fetch('/api/google/automation', {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ locationId: connectedLocation.id, enabled: true }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success || !payload?.data?.location) {
+        throw new Error(payload?.error?.message || 'Could not enable review automation.');
+      }
+      const savedLocation = payload.data.location as BusinessLocation;
+      setConnectedLocation(savedLocation);
+      onComplete(savedLocation);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not enable review automation.');
+    } finally {
+      setIsActivating(false);
     }
   };
 
@@ -303,9 +338,19 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2.5">
               <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" /><span>Only real sync results are shown. Review replies are subject to your server-side safety rules.</span>
             </div>
+            <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-4 text-xs text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableAutomation}
+                onChange={(event) => setEnableAutomation(event.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-blue-600"
+              />
+              <span><strong className="block text-slate-900">Enable automatic replies for eligible reviews</strong><span className="block mt-1 text-slate-500">Optional. Only reviews that pass the server-side safety checks and your automation rules can be auto-published. You can leave this off and enable it later.</span></span>
+            </label>
             <div className="flex justify-end pt-4 border-t border-slate-100">
-              <button onClick={() => onComplete(connectedLocation || undefined)} className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition flex items-center gap-1.5">
-                <span>Open Dashboard</span><ArrowRight className="w-4 h-4" />
+              <button onClick={handleCompleteOnboarding} disabled={isActivating} className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition flex items-center gap-1.5 disabled:opacity-50">
+                {isActivating && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>{isActivating ? 'Saving automation setting…' : 'Open Dashboard'}</span><ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
