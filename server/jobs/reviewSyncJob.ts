@@ -9,6 +9,7 @@ import { DEFAULT_AUTOMATION_RULES, RISK_LEVEL_SEVERITY } from '../../shared/cons
 import { GeminiAiReplyEngine } from '../services/ai/aiReplyEngine';
 import { GoogleBusinessProfileService } from '../services/google/googleProfileProvider';
 import { NotificationService } from '../services/notifications/notificationService';
+import { GoogleConnectionRepository } from '../repositories/postgresRepositories.ts';
 import { ReplyGuardService } from '../services/workflow/replyGuardService';
 
 export interface IngestionResult {
@@ -25,12 +26,14 @@ export class ReviewSyncJob {
   private googleService: GoogleBusinessProfileService;
   private notificationService: NotificationService;
   private replyGuard: ReplyGuardService;
+  private googleRepo: GoogleConnectionRepository;
 
   constructor() {
     this.aiEngine = new GeminiAiReplyEngine();
     this.googleService = new GoogleBusinessProfileService();
     this.notificationService = new NotificationService();
     this.replyGuard = new ReplyGuardService();
+    this.googleRepo = new GoogleConnectionRepository();
   }
 
   /**
