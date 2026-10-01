@@ -42,6 +42,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   // Google redirects back to the configured GOOGLE_REDIRECT_URI. Configure it to this
   // application's /onboarding URL so the authenticated client can complete the callback.
   useEffect(() => {
+    // Do not exchange an OAuth code with a demo/test bearer token. Wait for Firebase
+    // to restore a real signed-in session after the Google redirect.
+    if (!token || token === 'mock_access_token' || token.startsWith('test_token_') || token === 'dev_bearer_token') return;
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const state = params.get('state');
