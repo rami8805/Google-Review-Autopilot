@@ -7,7 +7,7 @@ FROM node:22-slim AS builder
 WORKDIR /app
 
 # Copy dependency manifests
-COPY package.json package-lock.json* bun.lock* ./
+COPY package.json package-lock.json* ./
 
 # Install all dependencies (including devDependencies for TypeScript & Vite build)
 RUN npm ci --legacy-peer-deps || npm install
@@ -28,7 +28,7 @@ ENV PORT=3000
 
 # Copy manifests and install production dependencies
 # tsx is a production dependency (see package.json) so TypeScript entrypoints work
-COPY package.json package-lock.json* bun.lock* ./
+COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev --legacy-peer-deps || npm install --omit=dev
 
 # Copy compiled frontend and application backend files

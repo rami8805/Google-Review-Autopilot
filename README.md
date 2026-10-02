@@ -192,10 +192,11 @@ npm run dev
 
 | Service | Protocol / Adapter | Environment Variable | Fallback Behavior |
 | :--- | :--- | :--- | :--- |
-| **Google Business Profile** | OAuth 2.0 (`business.manage`) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | In-memory Google adapter simulates locations and review publishing |
+| **Google Business Profile** | OAuth 2.0 (`business.manage`) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | In-memory Google adapter simulates locations and review publishing |
 | **Google Gemini AI** | `@google/genai` TypeScript SDK | `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.8-flash` | Deterministic template fallback with morphological prompt injection defense |
 | **Paddle Billing** | Subscriptions & Webhooks | `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET` | Sandbox billing with webhook verification & tier gating |
-| **Notifications** | Resend / SMTP Adapter | `RESEND_API_KEY`, `NOTIFICATION_FROM_EMAIL` | In-app notification queue and audit events log |
+| **Cloud Tasks** | Worker & OIDC ID Tokens | `CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL`, `CLOUD_TASKS_WORKER_URL` | Background task orchestration and execution |
+| **Notifications** | In-App Alert System | `APP_BASE_URL` | In-app notification queue and audit events log |
 
 ---
 
