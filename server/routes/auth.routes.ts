@@ -19,6 +19,7 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res) => {
   const user = await userRepo.getById(auth.userId);
   const tenant = await tenantRepo.getById(auth.tenantId);
   const locations = await googleRepo.listLocations(auth.tenantId);
+  const primaryLoc = locations.find((l) => l.isConnected) || locations[0] || null;
 
   res.json({
     success: true,
@@ -36,7 +37,7 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res) => {
       },
       saasCustomer: tenant || {
         id: auth.tenantId,
-        name: 'Platform Administration',
+        name: auth.role === 'SUPER_ADMIN' ? 'Platform Administration' : 'My Business',
         billingEmail: auth.email,
         status: 'ACTIVE',
         createdAt: new Date().toISOString(),
@@ -45,12 +46,12 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res) => {
       business: {
         id: `biz_${auth.tenantId}`,
         saasCustomerId: auth.tenantId,
-        name: tenant?.name || 'Platform Administration',
-        industryCategory: 'Platform Management',
+        name: tenant?.name || (auth.role === 'SUPER_ADMIN' ? 'Platform Administration' : 'My Business'),
+        industryCategory: auth.role === 'SUPER_ADMIN' ? 'Platform Management' : 'Local Business',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
-      location: locations[0] || null,
+      location: primaryLoc,
     },
     meta: { timestamp: new Date().toISOString() },
   });
@@ -99,10 +100,10 @@ router.post('/signup', async (req, res) => {
     googleLocationId: `locations/${Date.now()}`,
     locationName: businessName,
     address: {
-      addressLines: ['100 Main St'],
-      locality: 'San Francisco',
-      administrativeArea: 'CA',
-      postalCode: '94105',
+      addressLines: [],
+      locality: '',
+      administrativeArea: '',
+      postalCode: '',
       country: 'US',
     },
     primaryCategory: category || 'Local Business',

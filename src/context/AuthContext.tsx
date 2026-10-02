@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { signInWithPopup, signOut as fbSignOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { signInWithPopup, signOut as fbSignOut, onAuthStateChanged, User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
 import { auth, googleAuthProvider } from '../lib/firebase.ts';
 import type { UserRole } from '../../shared/types/domain.ts';
 
@@ -48,13 +48,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const idToken = await fbUser.getIdToken();
             setToken(idToken);
             setUserId(fbUser.uid);
-            const userEmail = fbUser.email || 'rami8805@gmail.com';
+            const userEmail = fbUser.email || '';
             setEmail(userEmail);
             setName(fbUser.displayName || userEmail.split('@')[0] || 'User');
 
             if (userEmail.toLowerCase() === 'rami8805@gmail.com') {
               setRole('SUPER_ADMIN');
               setTenantId('saas_platform_admin');
+            } else {
+              setRole('OWNER');
             }
 
             // Authoritatively resolve role and tenant membership from database
@@ -73,15 +75,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } catch (e) {
             console.warn('Failed to retrieve ID token from Firebase user:', e);
           }
-        } else if (!savedToken) {
-          // Default session for the designated manager rami8805@gmail.com is SUPER_ADMIN
-          const defaultToken = 'test_token_usr_1740000000_super_admin_rami8805';
-          setToken(defaultToken);
-          setUserId('usr_superadmin_rami');
-          setEmail('rami8805@gmail.com');
-          setName('Super Admin (Rami)');
-          setTenantId('saas_platform_admin');
-          setRole('SUPER_ADMIN');
+        } else if (savedToken) {
+          // Explicit saved session in storage
+          setToken(savedToken);
+          setRole(savedRole || 'MEMBER');
+          setTenantId(savedTenant || '');
+          setEmail(savedEmail || '');
+          setName(savedName || '');
+        } else {
+          // Strictly unauthenticated default: Landing Page is presented to visitors
+          setToken(null);
+          setUserId('');
+          setEmail('');
+          setName('');
+          setTenantId('');
+          setRole('MEMBER');
         }
 
         setIsLoadingAuth(false);
@@ -102,10 +110,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const cred = await signInWithPopup(auth, googleAuthProvider);
       if (cred.user) {
         const idToken = await cred.user.getIdToken();
+        const userEmail = cred.user.email || '';
+        const credential = GoogleAuthProvider.credentialFromResult(cred);
+        const googleAccessToken = credential?.accessToken;
+
         setToken(idToken);
         setUserId(cred.user.uid);
-        setEmail(cred.user.email || '');
-        setName(cred.user.displayName || 'Google User');
+        setEmail(userEmail);
+        setName(cred.user.displayName || userEmail.split('@')[0] || 'Business Owner');
+
+        if (userEmail.toLowerCase() === 'rami8805@gmail.com') {
+          setRole('SUPER_ADMIN');
+          setTenantId('saas_platform_admin');
+        } else {
+          setRole('OWNER');
+
+          // For real business owner: automatically discover and connect verified Google Business Profile locations
+          if (googleAccessToken) {
+            try {
+              await fetch('/api/google/connect-token', {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${idToken}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ accessToken: googleAccessToken }),
+              });
+            } catch (syncErr) {
+              console.warn('[AuthContext] Note: Auto-connect verified profile on sign-in:', syncErr);
+            }
+          }
+        }
 
         try {
           const meRes = await fetch('/api/auth/me', {
@@ -147,15 +182,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRole('MEMBER');
   };
 
-  const loginAs = (newRole: UserRole, targetTenantId = 'saas_cust_demo_01') => {
-    let userEmail = `${newRole.toLowerCase()}@${targetTenantId}.com`;
-    let userName = newRole === 'OWNER' ? 'Business Owner' : `${newRole} User`;
+  const loginAs = (newRole: UserRole, targetTenantId?: string) => {
     let tenant = targetTenantId;
+    let userEmail = '';
+    let userName = '';
 
     if (newRole === 'SUPER_ADMIN') {
       userEmail = 'rami8805@gmail.com';
       userName = 'Super Admin (Rami)';
       tenant = 'saas_platform_admin';
+    } else if (newRole === 'OWNER') {
+      userEmail = 'owner@mybusiness.com';
+      userName = 'Business Owner';
+      tenant = targetTenantId || `saas_cust_owner_${Date.now()}`;
+    } else {
+      userEmail = `${newRole.toLowerCase()}@business.com`;
+      userName = `${newRole} User`;
+      tenant = targetTenantId || `saas_cust_${newRole.toLowerCase()}`;
     }
 
     const newToken = `test_token_usr_${Date.now()}_${newRole.toLowerCase()}_${newRole === 'SUPER_ADMIN' ? 'super_admin' : tenant}`;

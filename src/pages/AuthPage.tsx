@@ -6,13 +6,21 @@ import type { UserRole } from '../../shared/types/domain';
 
 export const AuthPage: React.FC = () => {
   const navigate = useNavigate();
-  const { loginWithGoogle, loginAs } = useAuth();
+  const { loginWithGoogle, loginAs, email, role, isAuthenticated } = useAuth();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isUnauthorizedDomain, setIsUnauthorizedDomain] = useState(false);
   const [copiedDomain, setCopiedDomain] = useState(false);
 
   const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
+
+  const copyHostname = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(currentHostname);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2500);
+    }
+  };
 
   const handleGoogleSignIn = async () => {
     setIsLoggingIn(true);
@@ -34,13 +42,25 @@ export const AuthPage: React.FC = () => {
     }
   };
 
-  const copyHostname = () => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(currentHostname);
-      setCopiedDomain(true);
-      setTimeout(() => setCopiedDomain(false), 2500);
+  const handleQuickLogin = (targetRole: UserRole) => {
+    loginAs(targetRole);
+    if (targetRole === 'SUPER_ADMIN') {
+      navigate('/admin', { replace: true });
+    } else {
+      navigate('/', { replace: true });
     }
   };
+
+  React.useEffect(() => {
+    // If user is authenticated, route immediately to appropriate view
+    if (isAuthenticated && email) {
+      if (email.toLowerCase() === 'rami8805@gmail.com' || role === 'SUPER_ADMIN') {
+        navigate('/admin', { replace: true });
+      } else {
+        navigate('/', { replace: true });
+      }
+    }
+  }, [isAuthenticated, email, role, navigate]);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans selection:bg-blue-100 selection:text-blue-900">
@@ -57,10 +77,10 @@ export const AuthPage: React.FC = () => {
           </span>
         </div>
         <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-          Sign in to your customer workspace
+          Sign in to your Business Account
         </h2>
         <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto">
-          Manage your verified Google Business Profiles, inspect AI-drafted replies, and configure automation safety rules.
+          Manage your verified Google Business Profile, inspect AI-drafted replies, and configure automation safety rules.
         </p>
       </div>
 
@@ -95,7 +115,7 @@ export const AuthPage: React.FC = () => {
                   onClick={() => loginAs('OWNER')}
                   className="w-full py-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition"
                 >
-                  Or Continue Immediately as Workspace Owner &rarr;
+                  Or Continue Immediately as Business Owner &rarr;
                 </button>
               </div>
             </div>
@@ -182,28 +202,28 @@ export const AuthPage: React.FC = () => {
             <div className="text-[11px] text-slate-400 mb-1.5">Developer Sandbox Switcher:</div>
             <div className="flex items-center justify-center gap-1.5 flex-wrap">
               <button
-                onClick={() => loginAs('OWNER')}
+                onClick={() => handleQuickLogin('OWNER')}
                 className="px-2 py-0.5 text-[10px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition"
               >
                 Owner
               </button>
               <button
-                onClick={() => loginAs('ADMIN')}
+                onClick={() => handleQuickLogin('ADMIN')}
                 className="px-2 py-0.5 text-[10px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition"
               >
                 Admin
               </button>
               <button
-                onClick={() => loginAs('MEMBER')}
+                onClick={() => handleQuickLogin('MEMBER')}
                 className="px-2 py-0.5 text-[10px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition"
               >
                 Member
               </button>
               <button
-                onClick={() => loginAs('SUPER_ADMIN')}
+                onClick={() => handleQuickLogin('SUPER_ADMIN')}
                 className="px-2 py-0.5 text-[10px] font-mono bg-slate-900 text-white hover:bg-slate-800 rounded transition"
               >
-                Super Admin
+                Super Admin (rami8805@gmail.com)
               </button>
             </div>
           </div>

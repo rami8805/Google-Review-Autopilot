@@ -34,19 +34,21 @@ interface LandingPageProps {
   onStartOnboarding: () => void;
   onEnterDemo: () => void;
   onOpenAdmin: () => void;
+  onSignIn?: () => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   onStartOnboarding,
   onEnterDemo,
   onOpenAdmin,
+  onSignIn,
 }) => {
   // Navigation & Modal State
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [businessName, setBusinessName] = useState('');
   const [email, setEmail] = useState('');
-  const [category, setCategory] = useState('Dental Practice');
+  const [category, setCategory] = useState('Local Business');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Hero Interactive Product Pipeline State
@@ -136,8 +138,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </a>
           </nav>
 
-          {/* Zone 3: 2 clear primary actions */}
+          {/* Zone 3: Clear primary actions */}
           <div className="hidden sm:flex items-center gap-3">
+            <button
+              onClick={onSignIn || onStartOnboarding}
+              className="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3.5 py-2 rounded-lg hover:bg-slate-100 transition whitespace-nowrap"
+            >
+              Sign In
+            </button>
             <button
               onClick={onEnterDemo}
               className="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3.5 py-2 rounded-lg hover:bg-slate-100 transition whitespace-nowrap"
@@ -155,6 +163,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* Mobile hamburger menu toggle */}
           <div className="flex sm:hidden items-center gap-2">
+            <button
+              onClick={onSignIn || onStartOnboarding}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 font-semibold text-xs"
+            >
+              Sign In
+            </button>
             <button
               onClick={() => setShowSignupModal(true)}
               className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold text-xs"
@@ -1740,7 +1754,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Bayview Family Dental"
+                  placeholder="e.g. Apex Health, Metro Cafe, Bayview Logistics"
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                   className="w-full text-xs p-2.5 rounded-lg border border-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1754,7 +1768,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <input
                   type="email"
                   required
-                  placeholder="e.g. director@bayviewdental.com"
+                  placeholder="e.g. owner@mybusiness.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full text-xs p-2.5 rounded-lg border border-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1770,13 +1784,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   onChange={(e) => setCategory(e.target.value)}
                   className="w-full text-xs p-2.5 rounded-lg border border-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
-                  <option value="Dental Practice">Dental Practice / Dentist</option>
-                  <option value="Medical Clinic">Medical or Wellness Clinic</option>
+                  <option value="Local Business">Local Business / Retail / Store</option>
+                  <option value="Restaurant">Restaurant, Cafe or Hospitality</option>
+                  <option value="Medical Clinic">Medical, Dental or Wellness Clinic</option>
                   <option value="Auto Repair">Auto Repair &amp; Service</option>
                   <option value="Home Services">Plumbing, HVAC &amp; Electrical</option>
-                  <option value="Restaurant">Restaurant or Cafe</option>
-                  <option value="Professional Services">Legal or Accounting Practice</option>
-                  <option value="Other">Other Local Business</option>
+                  <option value="Professional Services">Legal, Accounting &amp; Consulting</option>
+                  <option value="Other">Other Business</option>
                 </select>
               </div>
 

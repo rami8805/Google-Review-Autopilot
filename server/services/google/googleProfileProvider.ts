@@ -5,6 +5,9 @@
  * unavailable. It never returns fabricated locations, reviews, tokens, or publish success.
  */
 
+import fs from 'fs';
+import path from 'path';
+
 export interface GoogleLocationDto {
   locationId: string;
   locationName: string;
@@ -60,21 +63,52 @@ export class GoogleBusinessProfileService implements IGoogleBusinessProfileProvi
   private clientId: string;
   private clientSecret: string;
   private redirectUri: string;
+  private configFilePath: string = path.resolve(process.cwd(), 'google-oauth.json');
 
   constructor(config?: { clientId?: string; clientSecret?: string; redirectUri?: string }) {
     this.clientId = config?.clientId ?? process.env.GOOGLE_CLIENT_ID ?? '';
     this.clientSecret = config?.clientSecret ?? process.env.GOOGLE_CLIENT_SECRET ?? '';
     this.redirectUri = config?.redirectUri ?? process.env.GOOGLE_REDIRECT_URI ?? '';
+
+    // Load persisted credentials if process.env is empty
+    if ((!this.clientId || !this.clientSecret) && fs.existsSync(this.configFilePath)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(this.configFilePath, 'utf8'));
+        if (data.clientId && !this.clientId) this.clientId = data.clientId;
+        if (data.clientSecret && !this.clientSecret) this.clientSecret = data.clientSecret;
+        if (data.redirectUri && !this.redirectUri) this.redirectUri = data.redirectUri;
+      } catch {
+        // Ignore read failure
+      }
+    }
   }
 
   isConfigured(): boolean {
-    return Boolean(this.clientId && this.clientSecret && this.redirectUri);
+    return Boolean(this.clientId && this.clientSecret);
   }
 
   updateConfig(config: { clientId?: string; clientSecret?: string; redirectUri?: string }): void {
     if (config.clientId) this.clientId = config.clientId.trim();
     if (config.clientSecret) this.clientSecret = config.clientSecret.trim();
     if (config.redirectUri) this.redirectUri = config.redirectUri.trim();
+
+    try {
+      fs.writeFileSync(
+        this.configFilePath,
+        JSON.stringify(
+          {
+            clientId: this.clientId,
+            clientSecret: this.clientSecret,
+            redirectUri: this.redirectUri,
+          },
+          null,
+          2
+        ),
+        'utf8'
+      );
+    } catch (err) {
+      console.warn('[GoogleBusinessProfileService] Note: Could not write google-oauth.json:', err);
+    }
   }
 
   getConfig(): { clientId: string; hasSecret: boolean; redirectUri: string; isConfigured: boolean } {
@@ -259,21 +293,6 @@ export class GoogleBusinessProfileService implements IGoogleBusinessProfileProvi
       } catch (locErr) {
         console.warn(`[googleProfileProvider] Could not fetch locations for ${parent}:`, locErr instanceof Error ? locErr.message : locErr);
       }
-    }
-
-    if (result.length === 0) {
-      result.push({
-        locationId: '1092837465910293847',
-        locationName: 'Downtown Dental Care & Orthodontics',
-        googleLocationName: 'accounts/1092837465910293847/locations/1092837465910293847',
-        addressLines: ['450 Sutter St', 'Suite 1200'],
-        locality: 'San Francisco',
-        administrativeArea: 'CA',
-        postalCode: '94108',
-        country: 'US',
-        primaryCategory: 'Dental Clinic',
-        primaryPhone: '+1 415-555-0199',
-      });
     }
 
     return result;

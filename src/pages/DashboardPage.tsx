@@ -696,41 +696,71 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </span>
             </div>
 
-            <div className="mt-3 space-y-2 text-xs text-slate-600">
-              <div>
-                <span className="text-[11px] text-slate-400 font-medium block">Business Name</span>
-                <span className="font-bold text-slate-800">{location.locationName}</span>
-              </div>
+            {location.isConnected ? (
+              <div className="mt-3 space-y-2 text-xs text-slate-600">
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Verified Business</span>
+                  <span className="font-bold text-slate-800">{location.locationName}</span>
+                </div>
 
-              <div>
-                <span className="text-[11px] text-slate-400 font-medium block">Address</span>
-                <span className="text-slate-700">
-                  {location.address.addressLines?.join(', ')}, {location.address.locality},{' '}
-                  {location.address.administrativeArea} {location.address.postalCode}
-                </span>
-              </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Storefront Address</span>
+                  <span className="text-slate-700">
+                    {[
+                      location.address.addressLines?.join(', '),
+                      location.address.locality,
+                      location.address.administrativeArea,
+                      location.address.postalCode,
+                    ]
+                      .filter(Boolean)
+                      .join(', ') || 'No physical storefront (Service area)'}
+                  </span>
+                </div>
 
-              <div className="flex justify-between items-center pt-1 text-[11px]">
-                <span className="text-slate-400">Category:</span>
-                <span className="font-semibold text-slate-700">{location.primaryCategory || 'Local Practice'}</span>
-              </div>
+                <div className="flex justify-between items-center pt-1 text-[11px]">
+                  <span className="text-slate-400">Category:</span>
+                  <span className="font-semibold text-slate-700">{location.primaryCategory || 'Local Business'}</span>
+                </div>
 
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="text-slate-400">Security:</span>
-                <span className="text-emerald-700 font-semibold">AES-256-GCM Encrypted</span>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-slate-400">Security:</span>
+                  <span className="text-emerald-700 font-semibold">AES-256-GCM Encrypted</span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="mt-3 space-y-2.5 text-xs text-slate-600">
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  No Google Business Profile is linked yet. Connect your verified account to sync your verified business name, address, and live Google customer reviews.
+                </p>
+                <button
+                  onClick={onConnectGoogle}
+                  className="w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition shadow-xs flex items-center justify-center gap-1.5"
+                >
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>Connect Google Profile</span>
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-            <button
-              onClick={onSyncReviews}
-              disabled={isSyncing}
-              className="text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1 disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? 'Syncing...' : 'Sync Reviews Now'}</span>
-            </button>
+            {location.isConnected ? (
+              <button
+                onClick={onSyncReviews}
+                disabled={isSyncing}
+                className="text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Syncing...' : 'Sync Reviews Now'}</span>
+              </button>
+            ) : (
+              <button
+                onClick={onConnectGoogle}
+                className="text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1"
+              >
+                <span>Launch Connection Wizard &rarr;</span>
+              </button>
+            )}
             <span className="text-[11px] text-slate-400">OAuth 2.0 API</span>
           </div>
         </section>

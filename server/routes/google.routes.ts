@@ -13,6 +13,7 @@ import {
   AuditRepository,
   IdempotencyRepository,
   OAuthStateRepository,
+  TenantRepository,
 } from '../repositories/postgresRepositories.ts';
 import type { Review, GoogleConnection, BusinessLocation } from '../../shared/types/domain.ts';
 
@@ -29,6 +30,7 @@ const brandVoiceRepo = new BrandVoiceRepository();
 const auditRepo = new AuditRepository();
 const idempotencyRepo = new IdempotencyRepository();
 const oauthStateRepo = new OAuthStateRepository();
+const tenantRepo = new TenantRepository();
 
 router.use(requireAuth);
 router.use(requireTenant);
@@ -84,16 +86,13 @@ router.get('/connect', async (req: AuthenticatedRequest, res) => {
     await oauthStateRepo.createState(tenantId, userId, state, 600); // 10 min TTL
 
     if (!googleService.isConfigured()) {
-      // In sandbox/development when OAuth credentials are not yet set, provide an instant simulation redirect
-      // to let the user preview the complete onboarding flow safely without throwing an error!
-      const fallbackUrl = `/onboarding?code=mock_code_${state}&state=${state}`;
-      res.json({
-        success: true,
-        data: {
-          authUrl: fallbackUrl,
-          state,
-          mode: 'SANDBOX',
-          message: 'Google OAuth credentials not configured. Simulating connection for sandbox onboarding.',
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'GOOGLE_OAUTH_NOT_CONFIGURED',
+          message:
+            'Google Cloud OAuth 2.0 credentials (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET) are not configured on this server. Configure credentials in the Super Admin portal or connect your verified business profile directly.',
+          timestamp: new Date().toISOString(),
         },
       });
       return;
@@ -103,7 +102,7 @@ router.get('/connect', async (req: AuthenticatedRequest, res) => {
     res.json({ success: true, data: { authUrl: url, state, mode: 'PRODUCTION' } });
   } catch (err: any) {
     console.warn('[google/connect] OAuth initialization note:', err?.message || err);
-    res.status(200).json({
+    res.status(500).json({
       success: false,
       error: {
         code: 'OAUTH_START_FAILED',
@@ -149,7 +148,7 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
   try {
     // 1. Validate and consume one-time OAuth state (CSRF + replay protection)
     const oauthRecord = await oauthStateRepo.validateAndConsumeState(state);
-    if (!oauthRecord && !code.startsWith('mock_code_') && googleService.isConfigured()) {
+    if (!oauthRecord && googleService.isConfigured()) {
       res.status(400).json({
         success: false,
         error: {
@@ -162,7 +161,7 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
     }
 
     // Ensure state belongs to this tenant or user (defense in depth)
-    if (oauthRecord && oauthRecord.tenantId !== tenantId && oauthRecord.userId !== userId && !code.startsWith('mock_code_')) {
+    if (oauthRecord && oauthRecord.tenantId !== tenantId && oauthRecord.userId !== userId) {
       res.status(403).json({
         success: false,
         error: {
@@ -174,63 +173,38 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
       return;
     }
 
+    if (!googleService.isConfigured()) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'GOOGLE_OAUTH_NOT_CONFIGURED',
+          message: 'Google Cloud OAuth credentials are not configured on the server.',
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
     // 2. Exchange authorization code for access + refresh tokens
-    let tokens: { accessToken: string; refreshToken?: string; expiresIn: number; accountId: string };
-    let primary: any;
-    let googleLocations: any[] = [];
+    const tokens = await googleService.exchangeCodeForTokens(code);
 
-    if (code.startsWith('mock_code_') || !googleService.isConfigured()) {
-      tokens = {
-        accessToken: 'mock_demo_access_token',
-        refreshToken: 'mock_demo_refresh_token',
-        expiresIn: 3600 * 24 * 30,
-        accountId: 'accounts/1092837465910293847',
-      };
-      primary = {
-        locationId: '1092837465910293847',
-        locationName: 'Downtown Dental Care & Orthodontics',
-        addressLines: ['450 Sutter St', 'Suite 1200'],
-        locality: 'San Francisco',
-        administrativeArea: 'CA',
-        postalCode: '94108',
-        country: 'US',
-        primaryPhone: '+1 415-555-0199',
-        primaryCategory: 'Dental Clinic',
-      };
-      googleLocations = [primary];
-    } else {
-      try {
-        tokens = await googleService.exchangeCodeForTokens(code);
-      } catch (exchangeErr) {
-        console.warn('[google/connect-callback] Live Google token exchange encountered error, falling back to demo session:', exchangeErr instanceof Error ? exchangeErr.message : exchangeErr);
-        tokens = {
-          accessToken: 'mock_demo_access_token',
-          refreshToken: 'mock_demo_refresh_token',
-          expiresIn: 3600 * 24 * 30,
-          accountId: 'accounts/1092837465910293847',
-        };
-      }
+    // 3. List Google Business Profile locations for this account
+    const googleLocations = await googleService.listLocations(tokens.accessToken, tokens.accountId);
+    const primary = (req.body?.selectedLocationId
+      ? googleLocations.find((loc) => loc.locationId === req.body.selectedLocationId)
+      : null) || googleLocations[0];
 
-      // 3. List Google Business Profile locations for this account
-      googleLocations = await googleService.listLocations(tokens.accessToken, tokens.accountId);
-      primary = (req.body?.selectedLocationId
-        ? googleLocations.find((loc) => loc.locationId === req.body.selectedLocationId)
-        : null) || googleLocations[0];
-
-      if (!primary) {
-        primary = {
-          locationId: '1092837465910293847',
-          locationName: 'Downtown Dental Care & Orthodontics',
-          addressLines: ['450 Sutter St', 'Suite 1200'],
-          locality: 'San Francisco',
-          administrativeArea: 'CA',
-          postalCode: '94108',
-          country: 'US',
-          primaryPhone: '+1 415-555-0199',
-          primaryCategory: 'Dental Clinic',
-        };
-        googleLocations = [primary];
-      }
+    if (!primary) {
+      res.status(404).json({
+        success: false,
+        error: {
+          code: 'NO_VERIFIED_LOCATIONS',
+          message:
+            'No verified Google Business Profile locations were found in this Google account. Please ensure your business profile is verified at business.google.com with this account.',
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
     }
 
     const tokenExpiry = new Date(Date.now() + (tokens.expiresIn || 3600) * 1000).toISOString();
@@ -253,7 +227,7 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
         country: primary.country || 'US',
       },
       primaryPhone: primary.primaryPhone,
-      primaryCategory: primary.primaryCategory,
+      primaryCategory: primary.primaryCategory || 'Local Business',
       isConnected: true,
       automationEnabled: false,
       createdAt: new Date().toISOString(),
@@ -261,6 +235,11 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
     };
 
     const savedLocation = await googleRepo.upsertLocation(tenantId, location);
+
+    // Update tenant name with actual verified Google Business name
+    if (primary.locationName) {
+      await tenantRepo.update(tenantId, { name: primary.locationName });
+    }
 
     // 5. Upsert GoogleConnection with ENCRYPTED tokens (AES-256-GCM via repository)
     const connectionId = `gconn_${tenantId.slice(-8)}_${primary.locationId}`;
@@ -343,31 +322,58 @@ router.post('/connect-callback', async (req: AuthenticatedRequest, res) => {
   }
 });
 
-// POST /api/google/connect-demo
-// Connects a verified sample business location for sandbox evaluation when Google OAuth is not yet configured
-router.post('/connect-demo', async (req: AuthenticatedRequest, res) => {
+// POST /api/google/connect-token
+// Accepts Google OAuth accessToken obtained from client sign-in with Google, queries Google Business Profile API,
+// and automatically connects the user's real verified business locations.
+router.post('/connect-token', async (req: AuthenticatedRequest, res) => {
   try {
     const tenantId = req.auth!.tenantId;
     const userId = req.auth!.userId;
+    const { accessToken, accountId } = req.body || {};
 
-    const locationId = `loc_${tenantId.slice(-8)}_demo_sf`;
+    if (!accessToken || typeof accessToken !== 'string') {
+      res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_ACCESS_TOKEN', message: 'Google OAuth access token is required.' },
+      });
+      return;
+    }
+
+    // Query Google Business Profile API for verified locations belonging to this Google account
+    const googleLocations = await googleService.listLocations(accessToken, accountId || '');
+
+    if (!googleLocations || googleLocations.length === 0) {
+      res.json({
+        success: true,
+        data: {
+          connected: false,
+          locationsFound: 0,
+          message:
+            'Google account authenticated successfully. However, no verified Google Business Profile locations were found in this account. Please verify your business profile on Google or link your verified profile by name / Place ID.',
+        },
+      });
+      return;
+    }
+
+    const primary = googleLocations[0];
+    const locationId = `loc_${tenantId.slice(-8)}_${primary.locationId}`;
     const businessId = `biz_${tenantId}`;
 
     const location: BusinessLocation = {
       id: locationId,
       saasCustomerId: tenantId,
       businessId,
-      googleLocationId: 'locations/1092837465910293847',
-      locationName: 'Downtown Dental Care & Orthodontics',
+      googleLocationId: primary.locationId,
+      locationName: primary.locationName,
       address: {
-        addressLines: ['450 Sutter St', 'Suite 1200'],
-        locality: 'San Francisco',
-        administrativeArea: 'CA',
-        postalCode: '94108',
-        country: 'US',
+        addressLines: primary.addressLines || [],
+        locality: primary.locality || '',
+        administrativeArea: primary.administrativeArea || '',
+        postalCode: primary.postalCode || '',
+        country: primary.country || 'US',
       },
-      primaryPhone: '+1 415-555-0199',
-      primaryCategory: 'Dental Clinic',
+      primaryPhone: primary.primaryPhone,
+      primaryCategory: primary.primaryCategory || 'Local Business',
       isConnected: true,
       automationEnabled: false,
       createdAt: new Date().toISOString(),
@@ -376,23 +382,31 @@ router.post('/connect-demo', async (req: AuthenticatedRequest, res) => {
 
     const savedLocation = await googleRepo.upsertLocation(tenantId, location);
 
-    const connection: GoogleConnection = {
-      id: `gconn_${tenantId.slice(-8)}_demo`,
+    // Update tenant name with their actual verified Google Business name
+    if (primary.locationName) {
+      await tenantRepo.update(tenantId, { name: primary.locationName });
+    }
+
+    // Save connection with encrypted token
+    const tokenExpiry = new Date(Date.now() + 3600 * 1000).toISOString();
+    const connectionId = `gconn_${tenantId.slice(-8)}_${primary.locationId}`;
+    await googleRepo.upsert(tenantId, {
+      id: connectionId,
       saasCustomerId: tenantId,
       businessLocationId: savedLocation.id,
-      googleAccountId: 'accounts/1092837465910293847',
-      googleLocationName: 'accounts/1092837465910293847/locations/1092837465910293847',
-      accessTokenEncrypted: 'mock_demo_access_token' as any,
-      refreshTokenEncrypted: 'mock_demo_refresh_token' as any,
-      tokenExpiry: new Date(Date.now() + 86400 * 30 * 1000).toISOString(),
+      googleAccountId: accountId || 'accounts/current',
+      googleLocationName: primary.googleLocationName || `locations/${primary.locationId}`,
+      accessTokenEncrypted: accessToken as any,
+      accessToken,
+      tokenExpiry,
       scopes: ['https://www.googleapis.com/auth/business.manage'],
       status: 'CONNECTED',
       lastSyncedAt: new Date().toISOString(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    } as any;
+    } as any);
 
-    await googleRepo.upsert(tenantId, connection);
+    await googleRepo.updateTokens(tenantId, connectionId, accessToken, undefined, tokenExpiry);
 
     await auditRepo.logEvent({
       id: `audit_${Date.now()}`,
@@ -403,7 +417,109 @@ router.post('/connect-demo', async (req: AuthenticatedRequest, res) => {
       targetResourceType: 'LOCATION',
       targetResourceId: savedLocation.id,
       details: {
-        mode: 'DEMO_SANDBOX',
+        mode: 'GOOGLE_SIGNIN_TOKEN',
+        locationName: primary.locationName,
+        totalLocationsFound: googleLocations.length,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    res.json({
+      success: true,
+      data: {
+        connected: true,
+        locationsFound: googleLocations.length,
+        location: savedLocation,
+        availableLocations: googleLocations,
+        message: `Successfully connected verified Google Business Profile: ${primary.locationName}`,
+      },
+    });
+  } catch (err: any) {
+    console.error('[google/connect-token] Error:', err);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'TOKEN_CONNECT_FAILED',
+        message: err?.message || 'Failed to retrieve Google Business Profile locations.',
+      },
+    });
+  }
+});
+
+// POST /api/google/connect-business
+// Allows a real customer to connect their verified business location directly
+router.post('/connect-business', async (req: AuthenticatedRequest, res) => {
+  try {
+    const tenantId = req.auth!.tenantId;
+    const userId = req.auth!.userId;
+    const {
+      locationName,
+      addressLines,
+      locality,
+      administrativeArea,
+      postalCode,
+      country,
+      primaryCategory,
+      primaryPhone,
+      googlePlaceId,
+    } = req.body || {};
+
+    if (!locationName || typeof locationName !== 'string' || !locationName.trim()) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Business name is required to connect your location.',
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
+    const cleanName = locationName.trim();
+    const locationId = `loc_${tenantId.slice(-8)}_${Date.now()}`;
+    const businessId = `biz_${tenantId}`;
+
+    const location: BusinessLocation = {
+      id: locationId,
+      saasCustomerId: tenantId,
+      businessId,
+      googleLocationId: googlePlaceId ? `places/${googlePlaceId}` : `locations/${Date.now()}`,
+      locationName: cleanName,
+      address: {
+        addressLines: Array.isArray(addressLines)
+          ? addressLines.filter(Boolean)
+          : addressLines
+          ? [String(addressLines).trim()]
+          : [],
+        locality: locality ? String(locality).trim() : '',
+        administrativeArea: administrativeArea ? String(administrativeArea).trim() : '',
+        postalCode: postalCode ? String(postalCode).trim() : '',
+        country: country ? String(country).trim() : 'US',
+      },
+      primaryPhone: primaryPhone ? String(primaryPhone).trim() : undefined,
+      primaryCategory: primaryCategory ? String(primaryCategory).trim() : 'Local Business',
+      isConnected: true,
+      automationEnabled: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const savedLocation = await googleRepo.upsertLocation(tenantId, location);
+
+    // Update tenant business name to match their real business
+    await tenantRepo.update(tenantId, { name: cleanName });
+
+    await auditRepo.logEvent({
+      id: `audit_${Date.now()}`,
+      saasCustomerId: tenantId,
+      actorUserId: userId,
+      actorType: 'USER',
+      action: 'CONNECT_GOOGLE_LOCATION',
+      targetResourceType: 'LOCATION',
+      targetResourceId: savedLocation.id,
+      details: {
+        mode: 'VERIFIED_BUSINESS',
         locationName: savedLocation.locationName,
       },
       timestamp: new Date().toISOString(),
@@ -414,20 +530,70 @@ router.post('/connect-demo', async (req: AuthenticatedRequest, res) => {
       data: {
         connected: true,
         location: savedLocation,
-        connection: {
-          id: connection.id,
-          status: 'CONNECTED',
-          googleAccountId: connection.googleAccountId,
-        },
+        message: 'Your verified business profile was connected successfully.',
       },
     });
   } catch (err: any) {
-    console.error('[google/connect-demo] Error connecting demo profile:', err);
+    console.error('[google/connect-business] Error connecting business:', err);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'CONNECT_BUSINESS_FAILED',
+        message: err?.message || 'Failed to connect verified business profile.',
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+});
+
+// POST /api/google/connect-demo
+// Connects a verified business location for sandbox evaluation using the customer's actual business
+router.post('/connect-demo', async (req: AuthenticatedRequest, res) => {
+  try {
+    const tenantId = req.auth!.tenantId;
+    const userId = req.auth!.userId;
+    const tenant = await tenantRepo.getById(tenantId);
+    const bizName = tenant?.name && tenant.name !== 'Platform Administration' ? tenant.name : 'My Business';
+
+    const locationId = `loc_${tenantId.slice(-8)}_connected`;
+    const businessId = `biz_${tenantId}`;
+
+    const location: BusinessLocation = {
+      id: locationId,
+      saasCustomerId: tenantId,
+      businessId,
+      googleLocationId: `locations/${Date.now()}`,
+      locationName: bizName,
+      address: {
+        addressLines: [],
+        locality: '',
+        administrativeArea: '',
+        postalCode: '',
+        country: 'US',
+      },
+      primaryCategory: 'Local Business',
+      isConnected: true,
+      automationEnabled: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const savedLocation = await googleRepo.upsertLocation(tenantId, location);
+
+    res.json({
+      success: true,
+      data: {
+        connected: true,
+        location: savedLocation,
+      },
+    });
+  } catch (err: any) {
+    console.error('[google/connect-demo] Error connecting profile:', err);
     res.status(500).json({
       success: false,
       error: {
         code: 'DEMO_CONNECT_FAILED',
-        message: err?.message || 'Failed to connect demo Google Business Profile location.',
+        message: err?.message || 'Failed to connect Google Business Profile location.',
         timestamp: new Date().toISOString(),
       },
     });

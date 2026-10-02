@@ -74,7 +74,7 @@ export const BrandVoiceConfig: React.FC<BrandVoiceConfigProps> = ({ brandVoice, 
             rows={2}
             value={signOff}
             onChange={(e) => setSignOff(e.target.value)}
-            placeholder="e.g. Warm regards, Dr. Sarah & The Downtown Dental Team"
+            placeholder="e.g. Warm regards, The Guest Relations Team"
             className="w-full text-xs p-2.5 rounded-lg border border-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -88,7 +88,7 @@ export const BrandVoiceConfig: React.FC<BrandVoiceConfigProps> = ({ brandVoice, 
               type="text"
               value={ownerTitle}
               onChange={(e) => setOwnerTitle(e.target.value)}
-              placeholder="e.g. Practice Director / General Manager"
+              placeholder="e.g. Owner / General Manager / Customer Service Lead"
               className="w-full text-xs p-2.5 rounded-lg border border-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -101,7 +101,7 @@ export const BrandVoiceConfig: React.FC<BrandVoiceConfigProps> = ({ brandVoice, 
               type="email"
               value={contactEmail}
               onChange={(e) => setContactEmail(e.target.value)}
-              placeholder="e.g. care@downtowndental-sf.com"
+              placeholder="e.g. support@mybusiness.com"
               className="w-full text-xs p-2.5 rounded-lg border border-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>

@@ -43,6 +43,17 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [copiedRedirectUri, setCopiedRedirectUri] = useState(false);
   const [copiedOrigin, setCopiedOrigin] = useState(false);
 
+  // Real verified business form state
+  const [bizName, setBizName] = useState(location.locationName || '');
+  const [bizAddress, setBizAddress] = useState(location.address?.addressLines?.[0] || '');
+  const [bizCity, setBizCity] = useState(location.address?.locality || '');
+  const [bizState, setBizState] = useState(location.address?.administrativeArea || '');
+  const [bizZip, setBizZip] = useState(location.address?.postalCode || '');
+  const [bizCategory, setBizCategory] = useState(location.primaryCategory || 'Local Business');
+  const [bizPhone, setBizPhone] = useState(location.primaryPhone || '');
+  const [bizPlaceId, setBizPlaceId] = useState('');
+  const [activeTab, setActiveTab] = useState<'oauth' | 'manual'>('oauth');
+
   const originUrl = typeof window !== 'undefined' ? window.location.origin : '';
   const redirectUri = typeof window !== 'undefined' ? `${window.location.origin}/onboarding` : '';
 
@@ -139,24 +150,40 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     }
   };
 
-  const handleConnectDemo = async () => {
+  const handleConnectVerifiedBusiness = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!bizName.trim()) {
+      setError('Please provide your business name.');
+      return;
+    }
     setIsConnecting(true);
     setError('');
-    setStatusMessage('Connecting sample Google Business Profile location…');
+    setStatusMessage('Connecting your verified business profile…');
     try {
-      const response = await fetch('/api/google/connect-demo', {
+      const response = await fetch('/api/google/connect-business', {
         method: 'POST',
         headers: getAuthHeaders(),
+        body: JSON.stringify({
+          locationName: bizName.trim(),
+          addressLines: bizAddress.trim() ? [bizAddress.trim()] : [],
+          locality: bizCity.trim(),
+          administrativeArea: bizState.trim(),
+          postalCode: bizZip.trim(),
+          country: 'US',
+          primaryCategory: bizCategory.trim() || 'Local Business',
+          primaryPhone: bizPhone.trim() || undefined,
+          googlePlaceId: bizPlaceId.trim() || undefined,
+        }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.success || !payload?.data?.location) {
-        throw new Error(payload?.error?.message || 'Could not connect demo location.');
+        throw new Error(payload?.error?.message || 'Could not connect verified business profile.');
       }
       setConnectedLocation(payload.data.location as BusinessLocation);
-      setStatusMessage('Sample Google Business Profile connected successfully.');
+      setStatusMessage('Your verified business profile was connected successfully.');
       setStep(2);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not connect demo location.');
+      setError(err instanceof Error ? err.message : 'Could not connect verified business profile.');
     } finally {
       setIsConnecting(false);
     }
@@ -270,118 +297,251 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         </div>
 
         {(error || statusMessage) && (
-          <div className={`mx-6 mt-5 rounded-xl border p-4 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${error ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-            <div className="flex items-start gap-2">
-              {error ? <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" /> : <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />}
-              <div>
-                <p className="font-semibold">{error || statusMessage}</p>
-                {error && (
-                  <p className="text-[11px] text-rose-700 mt-0.5">
-                    You can retry connecting or proceed immediately with the verified sandbox demonstration location.
-                  </p>
-                )}
-              </div>
+          <div className={`mx-6 mt-5 rounded-xl border p-4 text-xs flex items-start gap-3 ${error ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+            {error ? <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" /> : <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />}
+            <div>
+              <p className="font-semibold">{error || statusMessage}</p>
+              {error && (
+                <p className="text-[11px] text-rose-700 mt-1">
+                  You can connect via Google OAuth or verify your business details directly below.
+                </p>
+              )}
             </div>
-            {error && (
-              <button
-                type="button"
-                onClick={handleConnectDemo}
-                disabled={isConnecting}
-                className="shrink-0 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[11px] transition shadow-xs flex items-center gap-1.5"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>Use Sample Location & Proceed</span>
-              </button>
-            )}
           </div>
         )}
 
         {step === 1 && (
-          <div className="p-8 space-y-6 text-center">
-            <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto border border-blue-100">
-              <Building2 className="w-8 h-8" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">Authorize Google Business Profile</h3>
-              <p className="text-xs text-slate-500 max-w-md mx-auto mt-2 leading-relaxed">
-                Authorize access to your real Google Business Profile so the app can retrieve locations and reviews.
+          <div className="p-6 sm:p-8 space-y-6">
+            <div className="text-center">
+              <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto border border-blue-100 mb-3">
+                <Building2 className="w-7 h-7" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">Connect Your Verified Business</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
+                Connect your business to detect Google customer reviews, run safety checks, and publish automated replies.
               </p>
             </div>
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-left flex gap-3 text-xs text-amber-800">
-              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
-              <div><span className="font-semibold">Safety:</span> Replies remain subject to the configured risk checks and approval rules. This step does not grant permission to bypass Google policies.</div>
-            </div>
 
-            {error.includes('Google OAuth is not configured') && (
-              <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 text-left space-y-3 text-xs text-slate-700">
-                <div className="font-bold text-blue-900 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  <span>Google Cloud OAuth 2.0 Credentials Setup:</span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  In <strong>Google Cloud Console</strong> &rarr; <strong>APIs & Services</strong> &rarr; <strong>Credentials</strong> &rarr; <strong>Create OAuth client ID (Web application)</strong>, fill in the two fields as follows:
-                </p>
-
-                <div className="space-y-2">
-                  <div>
-                    <div className="text-[11px] font-bold text-slate-800 flex items-center justify-between mb-1">
-                      <span>1. Authorized JavaScript origins (No path / no trailing slash):</span>
-                      <button
-                        type="button"
-                        onClick={copyOrigin}
-                        className="px-2 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 font-sans font-semibold text-[10px]"
-                      >
-                        {copiedOrigin ? 'Copied Origin!' : 'Copy Origin'}
-                      </button>
-                    </div>
-                    <div className="bg-white p-2 rounded-lg border border-blue-200 font-mono text-[11px] text-blue-950 truncate">
-                      {originUrl}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-[11px] font-bold text-slate-800 flex items-center justify-between mb-1">
-                      <span>2. Authorized redirect URIs (Must include /onboarding):</span>
-                      <button
-                        type="button"
-                        onClick={copyRedirectUri}
-                        className="px-2 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 font-sans font-semibold text-[10px]"
-                      >
-                        {copiedRedirectUri ? 'Copied Redirect URI!' : 'Copy Redirect URI'}
-                      </button>
-                    </div>
-                    <div className="bg-white p-2 rounded-lg border border-blue-200 font-mono text-[11px] text-blue-950 truncate">
-                      {redirectUri}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 p-2 rounded-lg leading-relaxed">
-                  <strong>Important:</strong> If you get <em>"Invalid Origin: URIs must not contain a path"</em>, make sure the URL with <code className="font-mono bg-amber-100 px-1 py-0.2 rounded">/onboarding</code> is only placed under <strong>Authorized redirect URIs</strong>, NOT in Authorized JavaScript origins.
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
-              <button
-                onClick={handleConnectGoogle}
-                disabled={isConnecting}
-                className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-xs w-full sm:w-auto disabled:opacity-50"
-              >
-                {isConnecting && <Loader2 className="w-4 h-4 animate-spin" />}
-                {isConnecting ? 'Connecting to Google…' : 'Sign in with Google Business Profile'}
-              </button>
-
+            {/* Connection Method Tabs */}
+            <div className="flex border-b border-slate-200 text-xs font-semibold">
               <button
                 type="button"
-                onClick={handleConnectDemo}
-                disabled={isConnecting}
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition shadow-xs w-full sm:w-auto disabled:opacity-50"
+                onClick={() => setActiveTab('oauth')}
+                className={`flex-1 py-2.5 text-center border-b-2 transition ${
+                  activeTab === 'oauth'
+                    ? 'border-blue-600 text-blue-600 font-bold'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
               >
-                <Sparkles className="w-4 h-4 text-amber-400" />
-                <span>Connect Sample Business (Preview Sandbox)</span>
+                1. Official Google OAuth
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('manual')}
+                className={`flex-1 py-2.5 text-center border-b-2 transition ${
+                  activeTab === 'manual'
+                    ? 'border-blue-600 text-blue-600 font-bold'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                2. Enter Verified Business Details
               </button>
             </div>
+
+            {activeTab === 'oauth' ? (
+              <div className="space-y-4">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-slate-900">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span>Direct Google Business Profile OAuth 2.0</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    Authorizing Google Business Profile will automatically retrieve the verified business location(s) associated with your Google account.
+                  </p>
+                </div>
+
+                {error.includes('Google Cloud OAuth 2.0') && (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 text-left space-y-3 text-xs text-slate-700">
+                    <div className="font-bold text-blue-900 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-blue-600" />
+                      <span>Google Cloud OAuth 2.0 Credentials Setup:</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      In <strong>Google Cloud Console</strong> &rarr; <strong>APIs & Services</strong> &rarr; <strong>Credentials</strong> &rarr; <strong>Create OAuth client ID (Web application)</strong>, configure:
+                    </p>
+
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-[11px] font-bold text-slate-800 flex items-center justify-between mb-1">
+                          <span>Authorized JavaScript origins:</span>
+                          <button
+                            type="button"
+                            onClick={copyOrigin}
+                            className="px-2 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 font-sans font-semibold text-[10px]"
+                          >
+                            {copiedOrigin ? 'Copied Origin!' : 'Copy Origin'}
+                          </button>
+                        </div>
+                        <div className="bg-white p-2 rounded-lg border border-blue-200 font-mono text-[11px] text-blue-950 truncate">
+                          {originUrl}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[11px] font-bold text-slate-800 flex items-center justify-between mb-1">
+                          <span>Authorized redirect URIs (Includes /onboarding):</span>
+                          <button
+                            type="button"
+                            onClick={copyRedirectUri}
+                            className="px-2 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 font-sans font-semibold text-[10px]"
+                          >
+                            {copiedRedirectUri ? 'Copied Redirect URI!' : 'Copy Redirect URI'}
+                          </button>
+                        </div>
+                        <div className="bg-white p-2 rounded-lg border border-blue-200 font-mono text-[11px] text-blue-950 truncate">
+                          {redirectUri}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2 text-center">
+                  <button
+                    onClick={handleConnectGoogle}
+                    disabled={isConnecting}
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-xs w-full sm:w-auto disabled:opacity-50"
+                  >
+                    {isConnecting && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {isConnecting ? 'Connecting to Google…' : 'Sign in with Google Business Profile'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleConnectVerifiedBusiness} className="space-y-4 text-left text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Business Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={bizName}
+                    onChange={(e) => setBizName(e.target.value)}
+                    placeholder="e.g. Apex Medical Care, Horizon Bistro"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Street Address
+                    </label>
+                    <input
+                      type="text"
+                      value={bizAddress}
+                      onChange={(e) => setBizAddress(e.target.value)}
+                      placeholder="e.g. 100 Main St"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      City / Locality
+                    </label>
+                    <input
+                      type="text"
+                      value={bizCity}
+                      onChange={(e) => setBizCity(e.target.value)}
+                      placeholder="e.g. Chicago, London, Paris"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      State / Province
+                    </label>
+                    <input
+                      type="text"
+                      value={bizState}
+                      onChange={(e) => setBizState(e.target.value)}
+                      placeholder="e.g. IL, NY, Ile-de-France"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Postal Code
+                    </label>
+                    <input
+                      type="text"
+                      value={bizZip}
+                      onChange={(e) => setBizZip(e.target.value)}
+                      placeholder="e.g. 60601"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Category
+                    </label>
+                    <input
+                      type="text"
+                      value={bizCategory}
+                      onChange={(e) => setBizCategory(e.target.value)}
+                      placeholder="e.g. Clinic, Restaurant, Retail"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Phone Number
+                    </label>
+                    <input
+                      type="text"
+                      value={bizPhone}
+                      onChange={(e) => setBizPhone(e.target.value)}
+                      placeholder="e.g. +1 555-0199"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Google Maps Place ID (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={bizPlaceId}
+                      onChange={(e) => setBizPlaceId(e.target.value)}
+                      placeholder="e.g. ChIJN1t_tDeuEmsR..."
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-mono text-[11px]"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 text-right">
+                  <button
+                    type="submit"
+                    disabled={isConnecting || !bizName.trim()}
+                    className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-xs disabled:opacity-50"
+                  >
+                    {isConnecting && <Loader2 className="w-4 h-4 animate-spin" />}
+                    <span>Connect Verified Business &rarr;</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         )}
 

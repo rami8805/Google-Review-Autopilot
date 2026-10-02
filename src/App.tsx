@@ -125,25 +125,31 @@ function ProductionAppContent() {
       }
 
       if (locsList.length > 0) {
-        setLocation(locsList[0]);
+        const connected = locsList.find((l) => l.isConnected) || locsList[0];
+        setLocation(connected);
       } else if (meLocation) {
         setLocation(meLocation);
         setAvailableLocations([meLocation]);
       } else {
-        // Disconnected state
+        // Disconnected state: cleanly indicates Google Profile is not connected yet without fake addresses
+        const businessName =
+          meData?.data?.saasCustomer?.name && meData.data.saasCustomer.name !== 'Platform Administration'
+            ? meData.data.saasCustomer.name
+            : 'My Business';
         setLocation({
           id: '',
           businessId: meData?.data?.business?.id || '',
           saasCustomerId: meData?.data?.saasCustomer?.id || '',
           googleLocationId: '',
-          locationName: meData?.data?.saasCustomer?.name || 'My Business',
+          locationName: businessName,
           address: {
             addressLines: [],
             locality: '',
             administrativeArea: '',
             postalCode: '',
-            country: 'US',
+            country: '',
           },
+          primaryCategory: 'Google Profile Disconnected',
           isConnected: false,
           automationEnabled: false,
           createdAt: new Date().toISOString(),
@@ -451,7 +457,7 @@ function ProductionAppContent() {
             <RefreshCw className="w-6 h-6 animate-spin" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-900">Loading Your Business Workspace</h3>
+            <h3 className="text-sm font-bold text-slate-900">Loading Your Business Profile</h3>
             <p className="text-xs text-slate-500 mt-1">
               Retrieving verified Google Business Profile locations and review streams...
             </p>
@@ -555,6 +561,28 @@ function ProductionAppContent() {
           }
         />
         <Route
+          path="/workspace"
+          element={
+            <DashboardPage
+              reviews={reviews}
+              location={location}
+              subscription={subscription}
+              rules={rules}
+              brandVoice={brandVoice}
+              onOpenApprovalQueue={() => navigate('/reviews')}
+              onSyncReviews={handleSyncReviews}
+              isSyncing={isSyncingReviews}
+              onApprove={handleApprove}
+              onRegenerate={handleRegenerate}
+              onToggleAutomation={handleToggleAutomation}
+              onNavigateToSettings={(tab) => navigate(tab ? `/settings?tab=${tab}` : '/settings')}
+              onNavigateToBilling={() => navigate('/billing')}
+              onConnectGoogle={() => navigate('/onboarding')}
+              isDemoMode={false}
+            />
+          }
+        />
+        <Route
           path="/reviews"
           element={
             <ReviewsPage
@@ -617,37 +645,70 @@ function ProductionAppContent() {
 function MainAppShell() {
   const navigate = useNavigate();
   const locationPath = useLocation();
-  const { role, email, logout } = useAuth();
+  const { role, email, logout, isAuthenticated, isLoadingAuth } = useAuth();
 
-  // If the user is SUPER_ADMIN, automatically direct them straight to /admin management dashboard
+  const isSuperAdmin = Boolean(
+    isAuthenticated && (role === 'SUPER_ADMIN' || (email && email.toLowerCase() === 'rami8805@gmail.com'))
+  );
+
+  // If user is SUPER_ADMIN, automatically direct them straight to /admin management dashboard
   useEffect(() => {
-    if (role === 'SUPER_ADMIN' && (locationPath.pathname === '/' || locationPath.pathname === '/onboarding')) {
+    if (
+      isSuperAdmin &&
+      (locationPath.pathname === '/' ||
+        locationPath.pathname === '/onboarding' ||
+        locationPath.pathname === '/landing' ||
+        locationPath.pathname === '/auth')
+    ) {
       navigate('/admin', { replace: true });
     }
-  }, [role, locationPath.pathname, navigate]);
+  }, [isSuperAdmin, locationPath.pathname, navigate]);
+
+  // If non-admin attempts to access /admin, redirect to customer workspace
+  useEffect(() => {
+    if (isAuthenticated && !isSuperAdmin && locationPath.pathname.startsWith('/admin')) {
+      navigate('/', { replace: true });
+    }
+  }, [isAuthenticated, isSuperAdmin, locationPath.pathname, navigate]);
 
   const isDemoView = locationPath.pathname === '/demo' || locationPath.pathname.startsWith('/demo/');
-  const isLandingView = locationPath.pathname === '/landing';
+  const isAuthView = locationPath.pathname === '/auth' || locationPath.pathname === '/login';
   const isAdminView = locationPath.pathname.startsWith('/admin');
+
+  // Loading auth session state
+  if (isLoadingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white mb-4 animate-bounce">
+          <Zap className="w-5 h-5" />
+        </div>
+        <p className="text-xs font-semibold text-slate-600 flex items-center gap-2">
+          <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+          <span>Verifying authentication session...</span>
+        </p>
+      </div>
+    );
+  }
 
   // 1. Dedicated Demo Mode Entry Point
   if (isDemoView) {
     return <DemoPage />;
   }
 
-  // 2. Public SaaS Landing Page
-  if (isLandingView) {
-    return (
-      <LandingPage
-        onStartOnboarding={() => navigate('/onboarding')}
-        onEnterDemo={() => navigate('/demo')}
-        onOpenAdmin={() => navigate('/admin')}
-      />
-    );
+  // 2. Authentication View (Sign in / Google OAuth)
+  if (isAuthView) {
+    return <AuthPage />;
   }
 
-  // 3. Super Admin Console
+  // 3. Super Admin Console (Strictly for rami8805@gmail.com / SUPER_ADMIN)
   if (isAdminView) {
+    if (!isAuthenticated) {
+      return <AuthPage />;
+    }
+    if (!isSuperAdmin) {
+      navigate('/', { replace: true });
+      return null;
+    }
     return (
       <div>
         <div className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex justify-between items-center text-xs text-slate-300">
@@ -661,11 +722,11 @@ function MainAppShell() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/workspace')}
               className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition text-xs flex items-center gap-1.5"
               title="Inspect Customer Workspace"
             >
-              <span>Switch to Customer Workspace</span>
+              <span>Inspect Customer Workspace</span>
               <span>&rarr;</span>
             </button>
             <button
@@ -687,7 +748,42 @@ function MainAppShell() {
     );
   }
 
-  // 4. Authenticated Production Application
+  // 4. Default for unauthenticated visitors: Public SaaS Landing Page
+  if (!isAuthenticated) {
+    return (
+      <LandingPage
+        onStartOnboarding={() => navigate('/auth')}
+        onSignIn={() => navigate('/auth')}
+        onEnterDemo={() => navigate('/demo')}
+        onOpenAdmin={() => navigate('/auth')}
+      />
+    );
+  }
+
+  // 5. If authenticated user explicitly opens /landing, render LandingPage with link to dashboard
+  if (locationPath.pathname === '/landing') {
+    return (
+      <div>
+        <div className="bg-blue-600 text-white px-4 py-2 text-xs font-semibold flex items-center justify-between">
+          <span>Signed in as <strong>{email}</strong> ({isSuperAdmin ? 'Platform Super Admin' : 'Business Owner'})</span>
+          <button
+            onClick={() => navigate(isSuperAdmin ? '/admin' : '/')}
+            className="px-3 py-1 rounded-md bg-white text-blue-700 hover:bg-blue-50 transition"
+          >
+            {isSuperAdmin ? 'Open Admin Console →' : 'Go to My Dashboard →'}
+          </button>
+        </div>
+        <LandingPage
+          onStartOnboarding={() => navigate(isSuperAdmin ? '/admin' : '/onboarding')}
+          onSignIn={() => navigate(isSuperAdmin ? '/admin' : '/')}
+          onEnterDemo={() => navigate('/demo')}
+          onOpenAdmin={() => navigate('/admin')}
+        />
+      </div>
+    );
+  }
+
+  // 6. Real Business Owner Authenticated Workspace
   return <ProductionAppContent />;
 }
 

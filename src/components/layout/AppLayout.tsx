@@ -380,7 +380,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                       <div className="truncate">
                         <div className="font-bold text-xs truncate">{loc.locationName}</div>
                         <div className="text-[10px] text-slate-500 truncate">
-                          {loc.address.addressLines?.join(', ') || loc.address.locality}
+                          {loc.address.addressLines?.join(', ') || loc.address.locality || (loc.isConnected ? 'Verified Google Business Profile' : 'Google Profile Not Linked')}
                         </div>
                       </div>
                       {loc.id === location.id && (

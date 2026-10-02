@@ -74,7 +74,7 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
       if (!existingTenant) {
         await tenantRepo.create({
           id: tenantId,
-          name: 'Demo Workspace',
+          name: 'My Business',
           billingEmail: `${userId}@company.com`,
           status: 'ACTIVE',
           createdAt: new Date().toISOString(),
@@ -103,7 +103,7 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
       userId,
       identitySubject: `google_identity_${userId}`,
       email: `${userId}@company.com`,
-      tenantId: tenantId || 'saas_cust_demo_01',
+      tenantId: tenantId || `saas_cust_${userId}`,
       role,
     };
   }
@@ -215,7 +215,7 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
     }
 
     if (user) {
-      const tenantId = user.saasCustomerId || 'saas_cust_demo_01';
+      const tenantId = user.saasCustomerId || `saas_cust_${user.id}`;
       const membership = await userRepo.getMembership(tenantId, user.id);
       const role = membership?.role || user.role || 'MEMBER';
 
@@ -235,9 +235,21 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
     try {
       let existingTenant = await tenantRepo.getById(tenantId);
       if (!existingTenant) {
+        const emailLocal = email ? email.split('@')[0] : 'My Business';
+        const domain = email && email.includes('@') ? email.split('@')[1].split('.')[0] : '';
+        const rawName =
+          domain && !['gmail', 'yahoo', 'outlook', 'hotmail', 'icloud', 'proton', 'example'].includes(domain.toLowerCase())
+            ? domain
+            : emailLocal;
+        const formattedName = rawName
+          .replace(/[._-]/g, ' ')
+          .replace(/\b\w/g, (c) => c.toUpperCase())
+          .trim();
+        const businessName = formattedName ? `${formattedName}` : 'My Business';
+
         existingTenant = await tenantRepo.create({
           id: tenantId,
-          name: email ? email.split('@')[0] : 'My Business',
+          name: businessName,
           billingEmail: email,
           status: 'ACTIVE',
           createdAt: new Date().toISOString(),
@@ -247,11 +259,17 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
 
       let createdUser = await userRepo.getById(userId);
       if (!createdUser) {
+        const userName = email
+          ? email
+              .split('@')[0]
+              .replace(/[._-]/g, ' ')
+              .replace(/\b\w/g, (c) => c.toUpperCase())
+          : 'Business Owner';
         createdUser = await userRepo.create({
           id: userId,
           identitySubject,
           email,
-          name: email ? email.split('@')[0] : 'User',
+          name: userName,
           role: 'OWNER',
           saasCustomerId: tenantId,
           emailVerified: true,

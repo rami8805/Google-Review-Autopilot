@@ -665,7 +665,7 @@ export class OAuthStateRepository implements IOAuthStateRepository {
         .insert(schema.tenants)
         .values({
           id: tenantId,
-          name: 'Workspace',
+          name: 'My Business',
           billingEmail: `${tenantId}@company.com`,
           status: 'ACTIVE',
           createdAt: now,
