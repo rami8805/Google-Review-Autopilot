@@ -651,9 +651,48 @@ export class JobRecordRepository implements IJobRecordRepository {
 
 export class OAuthStateRepository implements IOAuthStateRepository {
   async createState(tenantId: string, userId: string, state: string, ttlSeconds = 600): Promise<OAuthStateRecord> {
-    const id = `oauth_${Date.now()}`;
+    const id = `oauth_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
+
+    // Ensure referenced tenant exists to satisfy foreign key constraint
+    const tenantRows = await db
+      .select({ id: schema.tenants.id })
+      .from(schema.tenants)
+      .where(eq(schema.tenants.id, tenantId));
+    if (!tenantRows.length) {
+      await db
+        .insert(schema.tenants)
+        .values({
+          id: tenantId,
+          name: 'Workspace',
+          billingEmail: `${tenantId}@company.com`,
+          status: 'ACTIVE',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing();
+    }
+
+    // Ensure referenced user exists to satisfy foreign key constraint
+    const userRows = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId));
+    if (!userRows.length) {
+      await db
+        .insert(schema.users)
+        .values({
+          id: userId,
+          identitySubject: `identity_${userId}`,
+          email: `${userId}@company.com`,
+          name: 'User',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing();
+    }
+
     await db.insert(schema.oauthStates).values({
       id,
       state,

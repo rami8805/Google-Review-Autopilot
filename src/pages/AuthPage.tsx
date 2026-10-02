@@ -9,16 +9,36 @@ export const AuthPage: React.FC = () => {
   const { loginWithGoogle, loginAs } = useAuth();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [isUnauthorizedDomain, setIsUnauthorizedDomain] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
 
   const handleGoogleSignIn = async () => {
     setIsLoggingIn(true);
     setLoginError(null);
+    setIsUnauthorizedDomain(false);
     try {
       await loginWithGoogle();
     } catch (err: any) {
-      setLoginError(err?.message || 'Google sign-in could not be completed. You can also explore the Live Demo.');
+      const code = err?.code || '';
+      const msg = err?.message || '';
+      if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
+        setIsUnauthorizedDomain(true);
+        setLoginError('This domain is not authorized in your Firebase Console.');
+      } else {
+        setLoginError(msg || 'Google sign-in could not be completed. You can also explore the Live Demo.');
+      }
     } finally {
       setIsLoggingIn(false);
+    }
+  };
+
+  const copyHostname = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(currentHostname);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2500);
     }
   };
 
@@ -46,10 +66,45 @@ export const AuthPage: React.FC = () => {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
         <div className="bg-white py-8 px-6 shadow-sm border border-slate-200 rounded-2xl sm:px-10 space-y-6">
-          {loginError && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
-              {loginError}
+          {isUnauthorizedDomain ? (
+            <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-3">
+              <div className="font-bold flex items-center gap-1.5 text-amber-950">
+                <span>⚠️ Firebase: auth/unauthorized-domain</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-800">
+                This preview domain is not yet in your Firebase <strong>Authorized domains</strong> list. To enable Google sign-in:
+              </p>
+              <div className="bg-white p-2 rounded-lg border border-amber-200 flex items-center justify-between gap-2 font-mono text-[11px] select-all">
+                <span className="truncate">{currentHostname}</span>
+                <button
+                  type="button"
+                  onClick={copyHostname}
+                  className="px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-sans font-semibold text-[10px] shrink-0"
+                >
+                  {copiedDomain ? 'Copied!' : 'Copy Domain'}
+                </button>
+              </div>
+              <ol className="list-decimal list-inside text-[11px] text-amber-800 space-y-0.5">
+                <li>Open <strong>Firebase Console</strong> → Authentication → Settings.</li>
+                <li>Go to <strong>Authorized domains</strong> → Add domain.</li>
+                <li>Paste the copied domain above.</li>
+              </ol>
+              <div className="pt-2 border-t border-amber-200/60">
+                <button
+                  type="button"
+                  onClick={() => loginAs('OWNER')}
+                  className="w-full py-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition"
+                >
+                  Or Continue Immediately as Workspace Owner &rarr;
+                </button>
+              </div>
             </div>
+          ) : (
+            loginError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                {loginError}
+              </div>
+            )
           )}
 
           {/* Primary Action: Real Google Sign-in */}

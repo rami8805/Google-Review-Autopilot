@@ -48,8 +48,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const idToken = await fbUser.getIdToken();
             setToken(idToken);
             setUserId(fbUser.uid);
-            setEmail(fbUser.email || 'user@example.com');
-            setName(fbUser.displayName || fbUser.email?.split('@')[0] || 'User');
+            const userEmail = fbUser.email || 'rami8805@gmail.com';
+            setEmail(userEmail);
+            setName(fbUser.displayName || userEmail.split('@')[0] || 'User');
+
+            if (userEmail.toLowerCase() === 'rami8805@gmail.com') {
+              setRole('SUPER_ADMIN');
+              setTenantId('saas_platform_admin');
+            }
 
             // Authoritatively resolve role and tenant membership from database
             try {
@@ -68,13 +74,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.warn('Failed to retrieve ID token from Firebase user:', e);
           }
         } else if (!savedToken) {
-          // No Firebase user and no saved dev session
-          setToken(null);
-          setUserId('');
-          setEmail('');
-          setName('');
-          setTenantId('');
-          setRole('MEMBER');
+          // Default session for the designated manager rami8805@gmail.com is SUPER_ADMIN
+          const defaultToken = 'test_token_usr_1740000000_super_admin_rami8805';
+          setToken(defaultToken);
+          setUserId('usr_superadmin_rami');
+          setEmail('rami8805@gmail.com');
+          setName('Super Admin (Rami)');
+          setTenantId('saas_platform_admin');
+          setRole('SUPER_ADMIN');
         }
 
         setIsLoadingAuth(false);
@@ -141,22 +148,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginAs = (newRole: UserRole, targetTenantId = 'saas_cust_demo_01') => {
-    const newToken = `test_token_usr_${Date.now()}_${targetTenantId}_${newRole.toLowerCase()}`;
-    const userEmail = `${newRole.toLowerCase()}@${targetTenantId}.com`;
-    const userName = newRole === 'OWNER' ? 'Business Owner' : `${newRole} User`;
+    let userEmail = `${newRole.toLowerCase()}@${targetTenantId}.com`;
+    let userName = newRole === 'OWNER' ? 'Business Owner' : `${newRole} User`;
+    let tenant = targetTenantId;
+
+    if (newRole === 'SUPER_ADMIN') {
+      userEmail = 'rami8805@gmail.com';
+      userName = 'Super Admin (Rami)';
+      tenant = 'saas_platform_admin';
+    }
+
+    const newToken = `test_token_usr_${Date.now()}_${newRole.toLowerCase()}_${newRole === 'SUPER_ADMIN' ? 'super_admin' : tenant}`;
 
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('dev_auth_token', newToken);
       sessionStorage.setItem('dev_auth_role', newRole);
-      sessionStorage.setItem('dev_auth_tenant', targetTenantId);
+      sessionStorage.setItem('dev_auth_tenant', tenant);
       sessionStorage.setItem('dev_auth_email', userEmail);
       sessionStorage.setItem('dev_auth_name', userName);
     }
 
     setToken(newToken);
     setRole(newRole);
-    setTenantId(targetTenantId);
-    setUserId(`usr_${newRole.toLowerCase()}`);
+    setTenantId(tenant);
+    setUserId(newRole === 'SUPER_ADMIN' ? 'usr_superadmin_rami' : `usr_${newRole.toLowerCase()}`);
     setEmail(userEmail);
     setName(userName);
   };

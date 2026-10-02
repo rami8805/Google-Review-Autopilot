@@ -23,19 +23,20 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res) => {
   res.json({
     success: true,
     data: {
-      user: user || {
+      user: {
+        ...(user || {}),
         id: auth.userId,
         email: auth.email,
-        name: auth.email.split('@')[0],
+        name: user?.name || (auth.email ? auth.email.split('@')[0] : 'User'),
         role: auth.role,
         saasCustomerId: auth.tenantId,
         emailVerified: true,
-        createdAt: new Date().toISOString(),
+        createdAt: user?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
       saasCustomer: tenant || {
         id: auth.tenantId,
-        name: 'My Business',
+        name: 'Platform Administration',
         billingEmail: auth.email,
         status: 'ACTIVE',
         createdAt: new Date().toISOString(),
@@ -44,8 +45,8 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res) => {
       business: {
         id: `biz_${auth.tenantId}`,
         saasCustomerId: auth.tenantId,
-        name: tenant?.name || 'My Business',
-        industryCategory: 'Local Business',
+        name: tenant?.name || 'Platform Administration',
+        industryCategory: 'Platform Management',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },

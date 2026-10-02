@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AdminHeader } from '../components/AdminHeader';
 import { TenantOverview } from '../features/TenantOverview';
 import { AdminSupportDesk } from '../features/AdminSupportDesk';
+import { AdminGoogleConfig } from '../features/AdminGoogleConfig';
 import { Activity, ShieldAlert, Cpu, CheckCircle } from 'lucide-react';
 import { useAuth } from '../../src/context/AuthContext';
 
@@ -90,6 +91,8 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
 
         {activeTab === 'tenants' && <TenantOverview />}
+
+        {activeTab === 'google' && <AdminGoogleConfig />}
 
         {activeTab === 'support' && <AdminSupportDesk />}
 

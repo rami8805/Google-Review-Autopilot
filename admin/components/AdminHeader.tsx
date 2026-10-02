@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Database, Users, AlertTriangle, LifeBuoy } from 'lucide-react';
+import { ShieldCheck, Database, Users, AlertTriangle, LifeBuoy, Building2 } from 'lucide-react';
 
 export const AdminHeader: React.FC<{ activeTab: string; onSelectTab: (tab: string) => void }> = ({
   activeTab,
@@ -15,7 +15,7 @@ export const AdminHeader: React.FC<{ activeTab: string; onSelectTab: (tab: strin
           <h1 className="text-base font-semibold leading-tight flex items-center gap-2">
             Google Review Autopilot <span className="text-xs px-2 py-0.5 rounded bg-indigo-900 text-indigo-300 font-mono">SUPER_ADMIN</span>
           </h1>
-          <p className="text-xs text-slate-400">Restricted Cross-Tenant Operations & System Telemetry</p>
+          <p className="text-xs text-slate-400">Platform Management, Multi-Tenant Oversight &amp; GBP Operations</p>
         </div>
       </div>
 
@@ -27,6 +27,14 @@ export const AdminHeader: React.FC<{ activeTab: string; onSelectTab: (tab: strin
           }`}
         >
           <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Tenants</span>
+        </button>
+        <button
+          onClick={() => onSelectTab('google')}
+          className={`px-3 py-1.5 rounded transition ${
+            activeTab === 'google' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <span className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5 text-blue-400" /> Google Integration</span>
         </button>
         <button
           onClick={() => onSelectTab('support')}

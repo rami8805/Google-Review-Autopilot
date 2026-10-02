@@ -617,6 +617,14 @@ function ProductionAppContent() {
 function MainAppShell() {
   const navigate = useNavigate();
   const locationPath = useLocation();
+  const { role, email, logout } = useAuth();
+
+  // If the user is SUPER_ADMIN, automatically direct them straight to /admin management dashboard
+  useEffect(() => {
+    if (role === 'SUPER_ADMIN' && (locationPath.pathname === '/' || locationPath.pathname === '/onboarding')) {
+      navigate('/admin', { replace: true });
+    }
+  }, [role, locationPath.pathname, navigate]);
 
   const isDemoView = locationPath.pathname === '/demo' || locationPath.pathname.startsWith('/demo/');
   const isLandingView = locationPath.pathname === '/landing';
@@ -643,19 +651,34 @@ function MainAppShell() {
     return (
       <div>
         <div className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex justify-between items-center text-xs text-slate-300">
-          <span className="font-mono">Super Admin Console &bull; Verified Google Identity Platform RBAC</span>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-indigo-900/80 text-indigo-300 border border-indigo-700">
+              SUPER_ADMIN
+            </span>
+            <span className="font-medium text-slate-200">Management &amp; Operations Portal</span>
+            <span className="text-slate-500 hidden sm:inline">&bull;</span>
+            <span className="text-slate-400 font-mono text-[11px] hidden sm:inline">{email}</span>
+          </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => navigate('/')}
+              className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition text-xs flex items-center gap-1.5"
+              title="Inspect Customer Workspace"
+            >
+              <span>Switch to Customer Workspace</span>
+              <span>&rarr;</span>
+            </button>
+            <button
               onClick={() => navigate('/demo')}
-              className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium transition"
+              className="px-2.5 py-1 rounded-lg bg-amber-600/90 hover:bg-amber-600 text-white font-medium transition text-xs"
             >
               Live Demo
             </button>
             <button
-              onClick={() => navigate('/')}
-              className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium transition"
+              onClick={logout}
+              className="px-2.5 py-1 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-white font-medium transition text-xs"
             >
-              &larr; Customer Workspace
+              Sign out
             </button>
           </div>
         </div>

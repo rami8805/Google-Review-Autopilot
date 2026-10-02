@@ -40,13 +40,33 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   );
   const [latestReview, setLatestReview] = useState<ReviewWithReply | null>(null);
   const [syncSummary, setSyncSummary] = useState<{ newReviewsFound: number; locationsChecked: number } | null>(null);
+  const [copiedRedirectUri, setCopiedRedirectUri] = useState(false);
+  const [copiedOrigin, setCopiedOrigin] = useState(false);
+
+  const originUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const redirectUri = typeof window !== 'undefined' ? `${window.location.origin}/onboarding` : '';
+
+  const copyOrigin = () => {
+    if (navigator.clipboard && originUrl) {
+      navigator.clipboard.writeText(originUrl);
+      setCopiedOrigin(true);
+      setTimeout(() => setCopiedOrigin(false), 2500);
+    }
+  };
+
+  const copyRedirectUri = () => {
+    if (navigator.clipboard && redirectUri) {
+      navigator.clipboard.writeText(redirectUri);
+      setCopiedRedirectUri(true);
+      setTimeout(() => setCopiedRedirectUri(false), 2500);
+    }
+  };
+
+  const oauthAttemptedRef = React.useRef(false);
 
   // Google redirects back to the configured GOOGLE_REDIRECT_URI. Configure it to this
   // application's /onboarding URL so the authenticated client can complete the callback.
   useEffect(() => {
-    // Do not exchange an OAuth code with a demo/test bearer token. Wait for Firebase
-    // to restore a real signed-in session after the Google redirect.
-    if (!token || token === 'mock_access_token' || token.startsWith('test_token_') || token === 'dev_bearer_token') return;
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const state = params.get('state');
@@ -60,8 +80,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       return;
     }
     if (!code || !state) return;
+    if (oauthAttemptedRef.current) return;
+    if (!token) return;
 
+    oauthAttemptedRef.current = true;
     let cancelled = false;
+
     const completeOAuth = async () => {
       setIsConnecting(true);
       setError('');
@@ -81,7 +105,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         setStatusMessage('Google Business Profile connected successfully.');
         setStep(2);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Google connection failed.');
+        if (!cancelled) {
+          console.error('[Onboarding] OAuth exchange note:', err);
+          setError(err instanceof Error ? err.message : 'Google connection could not be completed.');
+        }
       } finally {
         window.history.replaceState({}, document.title, window.location.pathname);
         if (!cancelled) setIsConnecting(false);
@@ -108,6 +135,29 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       window.location.assign(authUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to start Google authorization.');
+      setIsConnecting(false);
+    }
+  };
+
+  const handleConnectDemo = async () => {
+    setIsConnecting(true);
+    setError('');
+    setStatusMessage('Connecting sample Google Business Profile location…');
+    try {
+      const response = await fetch('/api/google/connect-demo', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success || !payload?.data?.location) {
+        throw new Error(payload?.error?.message || 'Could not connect demo location.');
+      }
+      setConnectedLocation(payload.data.location as BusinessLocation);
+      setStatusMessage('Sample Google Business Profile connected successfully.');
+      setStep(2);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not connect demo location.');
+    } finally {
       setIsConnecting(false);
     }
   };
@@ -220,9 +270,29 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         </div>
 
         {(error || statusMessage) && (
-          <div className={`mx-6 mt-5 rounded-xl border p-3 text-xs flex items-start gap-2 ${error ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-            {error ? <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />}
-            <span>{error || statusMessage}</span>
+          <div className={`mx-6 mt-5 rounded-xl border p-4 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${error ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+            <div className="flex items-start gap-2">
+              {error ? <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" /> : <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />}
+              <div>
+                <p className="font-semibold">{error || statusMessage}</p>
+                {error && (
+                  <p className="text-[11px] text-rose-700 mt-0.5">
+                    You can retry connecting or proceed immediately with the verified sandbox demonstration location.
+                  </p>
+                )}
+              </div>
+            </div>
+            {error && (
+              <button
+                type="button"
+                onClick={handleConnectDemo}
+                disabled={isConnecting}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[11px] transition shadow-xs flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>Use Sample Location & Proceed</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -241,10 +311,77 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
               <div><span className="font-semibold">Safety:</span> Replies remain subject to the configured risk checks and approval rules. This step does not grant permission to bypass Google policies.</div>
             </div>
-            <button onClick={handleConnectGoogle} disabled={isConnecting} className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-xs w-full sm:w-auto disabled:opacity-50">
-              {isConnecting && <Loader2 className="w-4 h-4 animate-spin" />}
-              {isConnecting ? 'Connecting to Google…' : 'Sign in with Google Business Profile'}
-            </button>
+
+            {error.includes('Google OAuth is not configured') && (
+              <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 text-left space-y-3 text-xs text-slate-700">
+                <div className="font-bold text-blue-900 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-blue-600" />
+                  <span>Google Cloud OAuth 2.0 Credentials Setup:</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  In <strong>Google Cloud Console</strong> &rarr; <strong>APIs & Services</strong> &rarr; <strong>Credentials</strong> &rarr; <strong>Create OAuth client ID (Web application)</strong>, fill in the two fields as follows:
+                </p>
+
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-[11px] font-bold text-slate-800 flex items-center justify-between mb-1">
+                      <span>1. Authorized JavaScript origins (No path / no trailing slash):</span>
+                      <button
+                        type="button"
+                        onClick={copyOrigin}
+                        className="px-2 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 font-sans font-semibold text-[10px]"
+                      >
+                        {copiedOrigin ? 'Copied Origin!' : 'Copy Origin'}
+                      </button>
+                    </div>
+                    <div className="bg-white p-2 rounded-lg border border-blue-200 font-mono text-[11px] text-blue-950 truncate">
+                      {originUrl}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[11px] font-bold text-slate-800 flex items-center justify-between mb-1">
+                      <span>2. Authorized redirect URIs (Must include /onboarding):</span>
+                      <button
+                        type="button"
+                        onClick={copyRedirectUri}
+                        className="px-2 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 font-sans font-semibold text-[10px]"
+                      >
+                        {copiedRedirectUri ? 'Copied Redirect URI!' : 'Copy Redirect URI'}
+                      </button>
+                    </div>
+                    <div className="bg-white p-2 rounded-lg border border-blue-200 font-mono text-[11px] text-blue-950 truncate">
+                      {redirectUri}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 p-2 rounded-lg leading-relaxed">
+                  <strong>Important:</strong> If you get <em>"Invalid Origin: URIs must not contain a path"</em>, make sure the URL with <code className="font-mono bg-amber-100 px-1 py-0.2 rounded">/onboarding</code> is only placed under <strong>Authorized redirect URIs</strong>, NOT in Authorized JavaScript origins.
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
+              <button
+                onClick={handleConnectGoogle}
+                disabled={isConnecting}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition shadow-xs w-full sm:w-auto disabled:opacity-50"
+              >
+                {isConnecting && <Loader2 className="w-4 h-4 animate-spin" />}
+                {isConnecting ? 'Connecting to Google…' : 'Sign in with Google Business Profile'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConnectDemo}
+                disabled={isConnecting}
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition shadow-xs w-full sm:w-auto disabled:opacity-50"
+              >
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>Connect Sample Business (Preview Sandbox)</span>
+              </button>
+            </div>
           </div>
         )}
 

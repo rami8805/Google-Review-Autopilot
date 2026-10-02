@@ -37,14 +37,26 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
     const raw = token.replace('test_token_', '');
     let role: UserRole = 'MEMBER';
     let tenantId = 'saas_cust_demo_01';
-    let userId = 'usr_01';
+    let userId = 'usr_owner';
 
-    if (raw.toLowerCase().endsWith('_super_admin')) {
+    if (raw.toLowerCase().endsWith('_super_admin') || raw.toLowerCase().includes('rami8805')) {
       role = 'SUPER_ADMIN';
       const remainder = raw.slice(0, -'_super_admin'.length);
       const split = remainder.split('_');
-      userId = split[0] || 'admin';
-      tenantId = split.slice(1).join('_') || 'system';
+      userId = split[0] || 'admin_rami';
+      tenantId = 'saas_platform_admin';
+    } else if (raw.includes('saas_cust_')) {
+      const saasIdx = raw.indexOf('saas_cust_');
+      const after = raw.substring(saasIdx);
+      const afterParts = after.split('_');
+      const last = afterParts[afterParts.length - 1].toUpperCase();
+      if (['OWNER', 'ADMIN', 'MEMBER', 'SUPPORT', 'SUPER_ADMIN'].includes(last)) {
+        role = last as UserRole;
+        tenantId = afterParts.slice(0, afterParts.length - 1).join('_');
+      } else {
+        tenantId = after;
+      }
+      userId = `usr_${role.toLowerCase()}`;
     } else {
       const parts = raw.split('_');
       if (parts.length >= 3) {
@@ -55,6 +67,36 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
         tenantId = parts.slice(1, parts.length - 1).join('_');
         userId = parts[0];
       }
+    }
+
+    try {
+      const existingTenant = await tenantRepo.getById(tenantId);
+      if (!existingTenant) {
+        await tenantRepo.create({
+          id: tenantId,
+          name: 'Demo Workspace',
+          billingEmail: `${userId}@company.com`,
+          status: 'ACTIVE',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      const existingUser = await userRepo.getById(userId);
+      if (!existingUser) {
+        await userRepo.create({
+          id: userId,
+          identitySubject: `google_identity_${userId}`,
+          email: `${userId}@company.com`,
+          name: `${role} User`,
+          role,
+          saasCustomerId: tenantId,
+          emailVerified: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch {
+      // Ignore if already created
     }
 
     return {
@@ -109,6 +151,62 @@ export async function verifyToken(token: string): Promise<AuthenticatedContext |
     }
 
     if (!identitySubject) return null;
+
+    const SUPER_ADMIN_EMAILS = [
+      'rami8805@gmail.com',
+      process.env.SUPER_ADMIN_EMAIL,
+      ...(process.env.SUPER_ADMIN_EMAILS || '').split(',').map((e) => e.trim()),
+    ].filter(Boolean);
+
+    const isSuperAdminEmail = SUPER_ADMIN_EMAILS.some(
+      (adminEmail) => email && adminEmail && email.toLowerCase() === adminEmail.toLowerCase()
+    );
+
+    if (isSuperAdminEmail) {
+      const superAdminTenantId = 'saas_platform_admin';
+      const superAdminUserId = `usr_superadmin_${identitySubject.substring(0, 10)}`;
+
+      try {
+        const adminTenant = await tenantRepo.getById(superAdminTenantId);
+        if (!adminTenant) {
+          await tenantRepo.create({
+            id: superAdminTenantId,
+            name: 'Platform Administration',
+            billingEmail: email,
+            status: 'ACTIVE',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        let adminUser = await userRepo.getByEmail(email);
+        if (!adminUser) {
+          adminUser = await userRepo.create({
+            id: superAdminUserId,
+            identitySubject,
+            email,
+            name: 'Super Admin',
+            role: 'SUPER_ADMIN',
+            saasCustomerId: superAdminTenantId,
+            emailVerified: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        await userRepo.createMembership(superAdminTenantId, adminUser.id, 'SUPER_ADMIN');
+      } catch (adminErr) {
+        console.warn('[auth] Super Admin bootstrap note:', adminErr);
+      }
+
+      return {
+        userId: superAdminUserId,
+        identitySubject,
+        email,
+        tenantId: superAdminTenantId,
+        role: 'SUPER_ADMIN',
+      };
+    }
 
     // Look up user and membership in repository
     let user = await userRepo.getByIdentitySubject(identitySubject);

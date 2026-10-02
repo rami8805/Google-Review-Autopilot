@@ -1,12 +1,10 @@
 {
-  "projectId": "gen-lang-client-0251044575",
-  "appId": "1:1047760616357:web:e36672ff9328aa7da0464c",
-  "apiKey": "AIzaSyDaHWOMsGwftITmGWHmkPFPQgEgY_3Oo_c",
-  "authDomain": "gen-lang-client-0251044575.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-googlereviewauto-3ea49abb-8336-45e6-8dfd-f4ca9be820e6",
-  "storageBucket": "gen-lang-client-0251044575.firebasestorage.app",
-  "messagingSenderId": "1047760616357",
-  "measurementId": "",
-  "oAuthClientId": "1047760616357-k1j9s731qfillsoaj67ur7j12v4bfjr4.apps.googleusercontent.com",
-  "recaptchaSiteKey": ""
+  "projectId": "review-auto-pilot",
+  "appId": "1:249077159600:web:b08c9a8861f7b3af23cd75",
+  "apiKey": "AIzaSyDADSZ9k0AaUA3juNkVzHjG4m3ecOssiNI",
+  "authDomain": "review-auto-pilot.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "review-auto-pilot.firebasestorage.app",
+  "messagingSenderId": "249077159600",
+  "measurementId": "G-SNR2NCN4NY"
 }
